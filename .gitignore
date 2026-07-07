@@ -1,0 +1,11 @@
+node_modules
+.next
+out
+dist
+coverage
+.env
+.env*.local
+*.log
+prisma/migrations/*/migration_lock.toml
+OpenTrust Africa Deep Research Dossier.pdf
+opentrust_africa_starter_bundle/

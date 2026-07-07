@@ -1,0 +1,245 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                String           @id @default(cuid())
+  email             String           @unique
+  name              String?
+  phone             String?
+  createdAt         DateTime         @default(now())
+  holders           Holder[]
+  issuerMemberships IssuerMember[]
+  magicTokens       MagicLinkToken[]
+  sessions          Session[]
+}
+
+model MagicLinkToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Holder {
+  id            String         @id @default(cuid())
+  userId        String?
+  displayName   String
+  email         String
+  phone         String?
+  createdAt     DateTime       @default(now())
+  user          User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
+  records       TrustRecord[]
+  consentGrants ConsentGrant[]
+  shareLinks    ShareLink[]
+  disputes      Dispute[]
+
+  @@index([email])
+}
+
+model Issuer {
+  id                 String              @id @default(cuid())
+  name               String
+  slug               String              @unique
+  verified           Boolean             @default(false)
+  status             String              @default("active")
+  createdAt          DateTime            @default(now())
+  members            IssuerMember[]
+  templates          RecordTemplate[]
+  records            TrustRecord[]
+  revocations        Revocation[]
+  disputes           Dispute[]
+  auditAnchors       AuditAnchor[]
+  verificationEvents VerificationEvent[]
+}
+
+model IssuerMember {
+  id        String   @id @default(cuid())
+  issuerId  String
+  userId    String
+  role      String   @default("admin")
+  status    String   @default("active")
+  createdAt DateTime @default(now())
+  issuer    Issuer   @relation(fields: [issuerId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([issuerId, userId])
+}
+
+model RecordTemplate {
+  id         String        @id @default(cuid())
+  issuerId   String
+  name       String
+  type       String        @default("certificate")
+  version    Int           @default(1)
+  schemaJson Json
+  createdAt  DateTime      @default(now())
+  issuer     Issuer        @relation(fields: [issuerId], references: [id], onDelete: Cascade)
+  records    TrustRecord[]
+
+  @@index([issuerId, type])
+}
+
+model TrustRecord {
+  id                 String              @id @default(cuid())
+  type               String              @default("certificate")
+  status             String              @default("issued")
+  version            Int                 @default(1)
+  issuerId           String
+  holderId           String
+  templateId         String?
+  credentialJson     Json
+  privateSubjectJson Json
+  privateSubjectCiphertext String?
+  privateSubjectIv         String?
+  privateSubjectTag        String?
+  privateSubjectKeyId      String?
+  publicSummaryJson  Json
+  evidenceHash       String?
+  signature          String
+  issuedAt           DateTime
+  expiresAt          DateTime?
+  revokedAt          DateTime?
+  disputeState       String              @default("none")
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  issuer             Issuer              @relation(fields: [issuerId], references: [id], onDelete: Restrict)
+  holder             Holder              @relation(fields: [holderId], references: [id], onDelete: Restrict)
+  template           RecordTemplate?     @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  consentGrants      ConsentGrant[]
+  shareLinks         ShareLink[]
+  verificationEvents VerificationEvent[]
+  revocation         Revocation?
+  disputes           Dispute[]
+  auditAnchors       AuditAnchor[]
+
+  @@index([issuerId, status])
+  @@index([holderId, status])
+}
+
+model ConsentGrant {
+  id                 String              @id @default(cuid())
+  holderId           String
+  recordId           String
+  mode               String              @default("verify_only")
+  purpose            String
+  audience           String?
+  status             String              @default("active")
+  expiresAt          DateTime?
+  revokedAt          DateTime?
+  accessCount        Int                 @default(0)
+  createdAt          DateTime            @default(now())
+  holder             Holder              @relation(fields: [holderId], references: [id], onDelete: Cascade)
+  record             TrustRecord         @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  shareLinks         ShareLink[]
+  verificationEvents VerificationEvent[]
+
+  @@index([holderId, status])
+  @@index([recordId, status])
+}
+
+model ShareLink {
+  id                 String              @id @default(cuid())
+  tokenHash          String              @unique
+  recordId           String
+  holderId           String
+  consentGrantId     String
+  expiresAt          DateTime?
+  revokedAt          DateTime?
+  lastUsedAt         DateTime?
+  createdAt          DateTime            @default(now())
+  record             TrustRecord         @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  holder             Holder              @relation(fields: [holderId], references: [id], onDelete: Cascade)
+  consentGrant       ConsentGrant        @relation(fields: [consentGrantId], references: [id], onDelete: Cascade)
+  verificationEvents VerificationEvent[]
+}
+
+model VerificationEvent {
+  id                String        @id @default(cuid())
+  recordId          String
+  issuerId          String
+  shareLinkId       String?
+  consentGrantId    String?
+  verifierReference String?
+  purpose           String?
+  status            String
+  reasonCodes       Json
+  cached            Boolean       @default(false)
+  createdAt         DateTime      @default(now())
+  record            TrustRecord   @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  issuer            Issuer        @relation(fields: [issuerId], references: [id], onDelete: Restrict)
+  shareLink         ShareLink?    @relation(fields: [shareLinkId], references: [id], onDelete: SetNull)
+  consentGrant      ConsentGrant? @relation(fields: [consentGrantId], references: [id], onDelete: SetNull)
+
+  @@index([recordId, createdAt])
+  @@index([issuerId, createdAt])
+}
+
+model Revocation {
+  id         String      @id @default(cuid())
+  recordId   String      @unique
+  issuerId   String
+  reason     String
+  reasonCode String?
+  createdAt  DateTime    @default(now())
+  record     TrustRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  issuer     Issuer      @relation(fields: [issuerId], references: [id], onDelete: Restrict)
+}
+
+model Dispute {
+  id            String      @id @default(cuid())
+  recordId      String
+  holderId      String?
+  issuerId      String?
+  openedByEmail String?
+  reason        String
+  status        String      @default("open")
+  outcome       String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  record        TrustRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  holder        Holder?     @relation(fields: [holderId], references: [id], onDelete: SetNull)
+  issuer        Issuer?     @relation(fields: [issuerId], references: [id], onDelete: SetNull)
+
+  @@index([recordId, status])
+}
+
+model AuditAnchor {
+  id           String       @id @default(cuid())
+  sequence     Int          @unique @default(autoincrement())
+  issuerId     String
+  recordId     String?
+  action       String
+  status       String
+  version      Int
+  payloadHash  String
+  previousHash String?
+  anchorHash   String       @unique
+  signature    String?
+  signatureAlgorithm String?
+  keyId        String?
+  publicKey    String?
+  createdAt    DateTime     @default(now())
+  issuer       Issuer       @relation(fields: [issuerId], references: [id], onDelete: Restrict)
+  record       TrustRecord? @relation(fields: [recordId], references: [id], onDelete: SetNull)
+
+  @@index([issuerId, sequence])
+  @@index([recordId, sequence])
+}

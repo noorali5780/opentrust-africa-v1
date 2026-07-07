@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: opentrust-africa-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: opentrust
+      POSTGRES_PASSWORD: opentrust
+      POSTGRES_DB: opentrust_africa
+    ports:
+      - "5432:5432"
+    volumes:
+      - opentrust_postgres:/var/lib/postgresql/data
+
+volumes:
+  opentrust_postgres:

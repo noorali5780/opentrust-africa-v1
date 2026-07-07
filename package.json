@@ -1,0 +1,29 @@
+{
+  "name": "opentrust-africa",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Self-hostable OpenTrust Africa foundation MVP for certificate issuance, holder consent, verification, revocation, disputes, and audit proofs.",
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm --workspace @opentrust/web run dev",
+    "build": "npm --workspace @opentrust/web run build",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.base.json --noEmit",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:studio": "prisma studio",
+    "seed": "tsx prisma/seed.ts",
+    "security:keys": "tsx scripts/generate-security-keys.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "prisma": "^6.5.0",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2",
+    "vitest": "^3.0.8"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "name": "@opentrust/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./schemas": "./src/schemas.ts",
+    "./reason-codes": "./src/reason-codes.ts",
+    "./trust-score": "./src/trust-score.ts",
+    "./proof-ledger": "./src/proof-ledger.ts",
+    "./offline": "./src/offline.ts"
+  },
+  "dependencies": {
+    "zod": "^3.24.2"
+  }
+}
