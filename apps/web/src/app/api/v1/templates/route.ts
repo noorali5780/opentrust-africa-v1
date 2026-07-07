@@ -1,7 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { ok, readJson } from "@/lib/json";
+import { ok, readJson, serviceUnavailable } from "@/lib/json";
 import { writeAuditAnchor } from "@/lib/audit";
 import { authorizeIssuerMutation, rateLimit } from "@/lib/request-security";
 import { pageInfo, parsePagination } from "@/lib/api-query";
@@ -18,30 +18,34 @@ export async function GET(request: Request) {
   if (limited) return limited;
 
   const { limit, cursor } = parsePagination(request);
-  const templates = await prisma.recordTemplate.findMany({
-    take: limit + 1,
-    ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
-    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-    select: {
-      id: true,
-      issuerId: true,
-      name: true,
-      type: true,
-      version: true,
-      schemaJson: true,
-      createdAt: true,
-      issuer: {
-        select: {
-          id: true,
-          name: true,
-          verified: true
+  try {
+    const templates = await prisma.recordTemplate.findMany({
+      take: limit + 1,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      select: {
+        id: true,
+        issuerId: true,
+        name: true,
+        type: true,
+        version: true,
+        schemaJson: true,
+        createdAt: true,
+        issuer: {
+          select: {
+            id: true,
+            name: true,
+            verified: true
+          }
         }
       }
-    }
-  });
-  const page = pageInfo(templates, limit);
+    });
+    const page = pageInfo(templates, limit);
 
-  return ok({ templates: page.items, nextCursor: page.nextCursor });
+    return ok({ templates: page.items, nextCursor: page.nextCursor });
+  } catch (error) {
+    return serviceUnavailable(error);
+  }
 }
 
 export async function POST(request: Request) {

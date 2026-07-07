@@ -5,7 +5,7 @@ import { encryptJsonPayload } from "@opentrust/core/encryption";
 import { certificateCredentialSchema, publicCertificateSummarySchema } from "@opentrust/core/schemas";
 import { hashPayload, signCredentialPayload } from "@opentrust/core/proof-ledger";
 import { prisma } from "@/lib/prisma";
-import { ok, problem, readJson } from "@/lib/json";
+import { ok, problem, readJson, serviceUnavailable } from "@/lib/json";
 import { writeAuditAnchor } from "@/lib/audit";
 import { getDataEncryptionKey, getIssuerSigningKeys } from "@/lib/security-keys";
 import { publicTrustRecordSelect } from "@/lib/api-shapes";
@@ -47,16 +47,20 @@ export async function GET(request: Request) {
     andFilters.push({ OR: accessFilters });
   }
 
-  const records = await prisma.trustRecord.findMany({
-    where: andFilters.length > 0 ? { AND: andFilters } : undefined,
-    take: limit + 1,
-    ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
-    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-    select: publicTrustRecordSelect
-  });
-  const page = pageInfo(records, limit);
+  try {
+    const records = await prisma.trustRecord.findMany({
+      where: andFilters.length > 0 ? { AND: andFilters } : undefined,
+      take: limit + 1,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      select: publicTrustRecordSelect
+    });
+    const page = pageInfo(records, limit);
 
-  return ok({ records: page.items, nextCursor: page.nextCursor });
+    return ok({ records: page.items, nextCursor: page.nextCursor });
+  } catch (error) {
+    return serviceUnavailable(error);
+  }
 }
 
 export async function POST(request: Request) {

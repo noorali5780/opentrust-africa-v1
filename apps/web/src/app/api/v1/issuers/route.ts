@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { ok, readJson } from "@/lib/json";
+import { ok, readJson, serviceUnavailable } from "@/lib/json";
 import { writeAuditAnchor } from "@/lib/audit";
 import { authorizeMutation, rateLimit } from "@/lib/request-security";
 import { pageInfo, parsePagination } from "@/lib/api-query";
@@ -17,30 +17,34 @@ export async function GET(request: Request) {
   if (limited) return limited;
 
   const { limit, cursor } = parsePagination(request);
-  const issuers = await prisma.issuer.findMany({
-    take: limit + 1,
-    ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
-    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-    select: {
-      id: true,
-      name: true,
-      slug: true,
-      verified: true,
-      status: true,
-      createdAt: true,
-      _count: {
-        select: {
-          templates: true,
-          records: true,
-          verificationEvents: true
+  try {
+    const issuers = await prisma.issuer.findMany({
+      take: limit + 1,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        verified: true,
+        status: true,
+        createdAt: true,
+        _count: {
+          select: {
+            templates: true,
+            records: true,
+            verificationEvents: true
+          }
         }
       }
-    }
-  });
+    });
 
-  const page = pageInfo(issuers, limit);
+    const page = pageInfo(issuers, limit);
 
-  return ok({ issuers: page.items, nextCursor: page.nextCursor });
+    return ok({ issuers: page.items, nextCursor: page.nextCursor });
+  } catch (error) {
+    return serviceUnavailable(error);
+  }
 }
 
 export async function POST(request: Request) {

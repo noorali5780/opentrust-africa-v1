@@ -6,7 +6,7 @@ import {
 } from "@opentrust/core/proof-ledger";
 import { prisma } from "@/lib/prisma";
 import { publicAuditAnchorSelect } from "@/lib/api-shapes";
-import { ok, problem } from "@/lib/json";
+import { ok, problem, serviceUnavailable } from "@/lib/json";
 import { pageInfo, parsePagination } from "@/lib/api-query";
 import { rateLimit } from "@/lib/request-security";
 
@@ -91,33 +91,37 @@ export async function GET(request: Request) {
   if (limited) return limited;
 
   const { limit, cursor } = parsePagination(request);
-  const previousAnchor = cursor
-    ? await prisma.auditAnchor.findUnique({
-        where: { id: cursor },
-        select: { anchorHash: true }
-      })
-    : null;
+  try {
+    const previousAnchor = cursor
+      ? await prisma.auditAnchor.findUnique({
+          where: { id: cursor },
+          select: { anchorHash: true }
+        })
+      : null;
 
-  if (cursor && !previousAnchor) return problem("Invalid audit cursor", 400);
+    if (cursor && !previousAnchor) return problem("Invalid audit cursor", 400);
 
-  const anchors = await prisma.auditAnchor.findMany({
-    take: limit + 1,
-    ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
-    orderBy: [{ sequence: "asc" }, { id: "asc" }],
-    select: publicAuditAnchorSelect
-  });
-  const page = pageInfo(anchors, limit);
-  const entries = page.items.map(toAuditEntry);
-  const expectedPreviousHash = previousAnchor?.anchorHash ?? null;
-  const verified = verifyAnchorWindow(entries, expectedPreviousHash);
+    const anchors = await prisma.auditAnchor.findMany({
+      take: limit + 1,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      orderBy: [{ sequence: "asc" }, { id: "asc" }],
+      select: publicAuditAnchorSelect
+    });
+    const page = pageInfo(anchors, limit);
+    const entries = page.items.map(toAuditEntry);
+    const expectedPreviousHash = previousAnchor?.anchorHash ?? null;
+    const verified = verifyAnchorWindow(entries, expectedPreviousHash);
 
-  return ok({
-    verified,
-    verificationScope: cursor ? "window" : "chain_prefix",
-    anchorsChecked: entries.length,
-    firstAnchor: entries[0]?.anchorHash ?? null,
-    lastAnchor: entries.at(-1)?.anchorHash ?? null,
-    nextCursor: page.nextCursor,
-    note: "Use cursor pagination for API checks; run full-chain verification as a scheduled background control for large ledgers."
-  });
+    return ok({
+      verified,
+      verificationScope: cursor ? "window" : "chain_prefix",
+      anchorsChecked: entries.length,
+      firstAnchor: entries[0]?.anchorHash ?? null,
+      lastAnchor: entries.at(-1)?.anchorHash ?? null,
+      nextCursor: page.nextCursor,
+      note: "Use cursor pagination for API checks; run full-chain verification as a scheduled background control for large ledgers."
+    });
+  } catch (error) {
+    return serviceUnavailable(error);
+  }
 }

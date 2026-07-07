@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { ok, problem } from "@/lib/json";
+import { ok, problem, serviceUnavailable } from "@/lib/json";
 import { publicTrustRecordSelect } from "@/lib/api-shapes";
 import { authorizeMutation, authorizeRecordAccess, rateLimit } from "@/lib/request-security";
 
@@ -15,21 +15,25 @@ export async function GET(request: Request, context: RouteContext) {
   if (authenticated) return authenticated;
 
   const { id } = await context.params;
-  const accessRecord = await prisma.trustRecord.findUnique({
-    where: { id },
-    select: { issuerId: true, holderId: true }
-  });
+  try {
+    const accessRecord = await prisma.trustRecord.findUnique({
+      where: { id },
+      select: { issuerId: true, holderId: true }
+    });
 
-  if (!accessRecord) return problem("Record not found", 404);
+    if (!accessRecord) return problem("Record not found", 404);
 
-  const denied = await authorizeRecordAccess(request, accessRecord);
-  if (denied) return denied;
+    const denied = await authorizeRecordAccess(request, accessRecord);
+    if (denied) return denied;
 
-  const record = await prisma.trustRecord.findUnique({
-    where: { id },
-    select: publicTrustRecordSelect
-  });
-  if (!record) return problem("Record not found", 404);
+    const record = await prisma.trustRecord.findUnique({
+      where: { id },
+      select: publicTrustRecordSelect
+    });
+    if (!record) return problem("Record not found", 404);
 
-  return ok({ record });
+    return ok({ record });
+  } catch (error) {
+    return serviceUnavailable(error);
+  }
 }

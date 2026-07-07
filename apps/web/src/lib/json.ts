@@ -31,6 +31,14 @@ export function problem(message: string, status = 400, details?: unknown) {
   return Response.json(body, withRequestId({ status }));
 }
 
+export function serviceUnavailable(error: unknown) {
+  return problem(
+    "Service temporarily unavailable",
+    503,
+    error instanceof Error ? error.message : undefined
+  );
+}
+
 export async function readJson<T>(
   request: Request,
   schema: ZodSchema<T>,
