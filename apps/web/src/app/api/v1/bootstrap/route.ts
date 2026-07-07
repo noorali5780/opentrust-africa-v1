@@ -6,6 +6,10 @@ export async function POST(request: Request) {
   const limited = rateLimit(request, "bootstrap", 10, 60_000);
   if (limited) return limited;
 
+  if (process.env.NODE_ENV === "production" && process.env.ALLOW_DEMO_BOOTSTRAP !== "true") {
+    return problem("Demo bootstrap is disabled", 403);
+  }
+
   const denied = await authorizeMutation(request);
   if (denied) return denied;
 

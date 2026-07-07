@@ -3,7 +3,9 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { ok, problem, readJson } from "@/lib/json";
 import { writeAuditAnchor } from "@/lib/audit";
-import { authorizeMutation, rateLimit } from "@/lib/request-security";
+import { publicTrustRecordSelect } from "@/lib/api-shapes";
+import { authorizeMutation, authorizeRecordAccess, rateLimit } from "@/lib/request-security";
+import { replayIdempotentResponse, storeIdempotentResponse } from "@/lib/idempotency";
 
 const disputeSchema = z.object({
   holderId: z.string().min(1).optional(),
@@ -27,10 +29,23 @@ export async function POST(request: Request, context: RouteContext) {
   if ("response" in parsed) return parsed.response;
 
   const record = await prisma.trustRecord.findUnique({
-    where: { id }
+    where: { id },
+    select: {
+      issuerId: true,
+      holderId: true,
+      publicSummaryJson: true,
+      version: true
+    }
   });
 
   if (!record) return problem("Record not found", 404);
+
+  const accessDenied = await authorizeRecordAccess(request, record);
+  if (accessDenied) return accessDenied;
+
+  const idempotentBody = { id, ...parsed.data };
+  const replayed = await replayIdempotentResponse(request, "POST /api/v1/records/:id/disputes", idempotentBody);
+  if (replayed) return replayed;
 
   const summary = {
     ...(record.publicSummaryJson as Record<string, unknown>),
@@ -45,7 +60,8 @@ export async function POST(request: Request, context: RouteContext) {
         status: "disputed",
         disputeState: "open",
         publicSummaryJson: summary as Prisma.InputJsonValue
-      }
+      },
+      select: publicTrustRecordSelect
     }),
     prisma.dispute.create({
       data: {
@@ -71,5 +87,8 @@ export async function POST(request: Request, context: RouteContext) {
     }
   });
 
-  return ok({ record: updatedRecord, dispute }, { status: 201 });
+  const responseBody = { record: updatedRecord, dispute };
+  await storeIdempotentResponse(request, "POST /api/v1/records/:id/disputes", idempotentBody, responseBody, 201);
+
+  return ok(responseBody, { status: 201 });
 }

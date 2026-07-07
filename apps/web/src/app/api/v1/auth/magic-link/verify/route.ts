@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { createShareToken, hashToken } from "@opentrust/core/proof-ledger";
 import { prisma } from "@/lib/prisma";
@@ -51,6 +52,8 @@ export async function POST(request: Request) {
     },
     expiresAt: expiresAt.toISOString()
   });
+  response.headers.set("Cache-Control", "no-store");
+  response.headers.set("X-Request-Id", randomUUID());
 
   response.cookies.set("ota_session", sessionToken, {
     httpOnly: true,

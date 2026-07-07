@@ -3,7 +3,9 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { ok, problem, readJson } from "@/lib/json";
 import { writeAuditAnchor } from "@/lib/audit";
-import { authorizeMutation, rateLimit } from "@/lib/request-security";
+import { publicTrustRecordSelect } from "@/lib/api-shapes";
+import { authorizeIssuerMutation, authorizeMutation, rateLimit } from "@/lib/request-security";
+import { replayIdempotentResponse, storeIdempotentResponse } from "@/lib/idempotency";
 
 const revokeSchema = z.object({
   issuerId: z.string().min(1),
@@ -27,11 +29,24 @@ export async function POST(request: Request, context: RouteContext) {
   if ("response" in parsed) return parsed.response;
 
   const record = await prisma.trustRecord.findUnique({
-    where: { id }
+    where: { id },
+    select: {
+      issuerId: true,
+      publicSummaryJson: true,
+      status: true,
+      version: true
+    }
   });
 
   if (!record) return problem("Record not found", 404);
   if (record.issuerId !== parsed.data.issuerId) return problem("Issuer cannot revoke this record", 403);
+
+  const issuerDenied = await authorizeIssuerMutation(request, record.issuerId);
+  if (issuerDenied) return issuerDenied;
+
+  const idempotentBody = { id, ...parsed.data };
+  const replayed = await replayIdempotentResponse(request, "POST /api/v1/records/:id/revoke", idempotentBody);
+  if (replayed) return replayed;
 
   const revokedAt = new Date();
   const summary = {
@@ -47,7 +62,8 @@ export async function POST(request: Request, context: RouteContext) {
         status: "revoked",
         revokedAt,
         publicSummaryJson: summary as Prisma.InputJsonValue
-      }
+      },
+      select: publicTrustRecordSelect
     }),
     prisma.revocation.upsert({
       where: { recordId: id },
@@ -77,5 +93,8 @@ export async function POST(request: Request, context: RouteContext) {
     }
   });
 
-  return ok({ record: updatedRecord, revocation });
+  const responseBody = { record: updatedRecord, revocation };
+  await storeIdempotentResponse(request, "POST /api/v1/records/:id/revoke", idempotentBody, responseBody);
+
+  return ok(responseBody);
 }

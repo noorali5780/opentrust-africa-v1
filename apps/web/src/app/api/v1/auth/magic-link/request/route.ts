@@ -38,8 +38,8 @@ export async function POST(request: Request) {
   });
 
   return ok({
-    message: "Development magic link token created",
-    token,
-    expiresAt: expiresAt.toISOString()
+    message: "Magic link created if the account is eligible",
+    expiresAt: expiresAt.toISOString(),
+    ...(process.env.NODE_ENV !== "production" ? { token } : {})
   });
 }

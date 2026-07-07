@@ -8,7 +8,10 @@ import { prisma } from "@/lib/prisma";
 import { ok, problem, readJson } from "@/lib/json";
 import { writeAuditAnchor } from "@/lib/audit";
 import { getDataEncryptionKey, getIssuerSigningKeys } from "@/lib/security-keys";
-import { authorizeMutation, rateLimit } from "@/lib/request-security";
+import { publicTrustRecordSelect } from "@/lib/api-shapes";
+import { authorizeIssuerMutation, getRecordReadScope, rateLimit } from "@/lib/request-security";
+import { pageInfo, parsePagination } from "@/lib/api-query";
+import { replayIdempotentResponse, storeIdempotentResponse } from "@/lib/idempotency";
 
 const issueCertificateSchema = z.object({
   issuerId: z.string().min(1),
@@ -23,43 +26,51 @@ const issueCertificateSchema = z.object({
   expiresAt: z.string().datetime().optional()
 });
 
-export async function GET() {
-  const records = await prisma.trustRecord.findMany({
-    orderBy: { createdAt: "desc" },
-    include: {
-      issuer: {
-        select: { id: true, name: true, verified: true }
-      },
-      holder: {
-        select: { id: true, displayName: true, email: true }
-      },
-      consentGrants: {
-        orderBy: { createdAt: "desc" },
-        take: 3
-      },
-      verificationEvents: {
-        orderBy: { createdAt: "desc" },
-        take: 5
-      },
-      revocation: true,
-      disputes: {
-        orderBy: { createdAt: "desc" }
-      }
-    }
-  });
+export async function GET(request: Request) {
+  const limited = rateLimit(request, "record-read", 120, 60_000);
+  if (limited) return limited;
 
-  return ok({ records });
+  const { limit, cursor } = parsePagination(request);
+  const url = new URL(request.url);
+  const issuerId = url.searchParams.get("issuerId") ?? undefined;
+  const holderId = url.searchParams.get("holderId") ?? undefined;
+  const scope = await getRecordReadScope(request);
+  if ("response" in scope) return scope.response;
+
+  const andFilters: Prisma.TrustRecordWhereInput[] = [];
+  if (issuerId) andFilters.push({ issuerId });
+  if (holderId) andFilters.push({ holderId });
+  if (!scope.all) {
+    const accessFilters: Prisma.TrustRecordWhereInput[] = [];
+    if (scope.issuerIds.length > 0) accessFilters.push({ issuerId: { in: scope.issuerIds } });
+    if (scope.holderIds.length > 0) accessFilters.push({ holderId: { in: scope.holderIds } });
+    andFilters.push({ OR: accessFilters });
+  }
+
+  const records = await prisma.trustRecord.findMany({
+    where: andFilters.length > 0 ? { AND: andFilters } : undefined,
+    take: limit + 1,
+    ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    select: publicTrustRecordSelect
+  });
+  const page = pageInfo(records, limit);
+
+  return ok({ records: page.items, nextCursor: page.nextCursor });
 }
 
 export async function POST(request: Request) {
   const limited = rateLimit(request, "record-write", 40, 60_000);
   if (limited) return limited;
 
-  const denied = await authorizeMutation(request);
-  if (denied) return denied;
-
   const parsed = await readJson(request, issueCertificateSchema);
   if ("response" in parsed) return parsed.response;
+
+  const issuerDenied = await authorizeIssuerMutation(request, parsed.data.issuerId);
+  if (issuerDenied) return issuerDenied;
+
+  const replayed = await replayIdempotentResponse(request, "POST /api/v1/records", parsed.data);
+  if (replayed) return replayed;
 
   const issuer = await prisma.issuer.findUnique({
     where: { id: parsed.data.issuerId }
@@ -182,7 +193,8 @@ export async function POST(request: Request) {
       signature,
       issuedAt,
       expiresAt
-    }
+    },
+    select: publicTrustRecordSelect
   });
 
   await writeAuditAnchor({
@@ -194,5 +206,8 @@ export async function POST(request: Request) {
     payload: credential
   });
 
-  return ok({ record, publicSummary }, { status: 201 });
+  const responseBody = { record, publicSummary };
+  await storeIdempotentResponse(request, "POST /api/v1/records", parsed.data, responseBody, 201);
+
+  return ok(responseBody, { status: 201 });
 }

@@ -3,7 +3,8 @@ import { createShareToken, hashToken } from "@opentrust/core/proof-ledger";
 import { prisma } from "@/lib/prisma";
 import { ok, problem, readJson } from "@/lib/json";
 import { writeAuditAnchor } from "@/lib/audit";
-import { authorizeMutation, rateLimit } from "@/lib/request-security";
+import { authorizeMutation, authorizeRecordAccess, rateLimit } from "@/lib/request-security";
+import { replayIdempotentResponse, storeIdempotentResponse } from "@/lib/idempotency";
 
 const consentSchema = z.object({
   recordId: z.string().min(1),
@@ -17,40 +18,55 @@ export async function POST(request: Request) {
   const limited = rateLimit(request, "consent-write", 60, 60_000);
   if (limited) return limited;
 
-  const denied = await authorizeMutation(request);
-  if (denied) return denied;
+  const authenticated = await authorizeMutation(request);
+  if (authenticated) return authenticated;
 
   const parsed = await readJson(request, consentSchema);
   if ("response" in parsed) return parsed.response;
 
   const record = await prisma.trustRecord.findUnique({
     where: { id: parsed.data.recordId },
-    include: { holder: true }
+    select: {
+      id: true,
+      issuerId: true,
+      holderId: true,
+      version: true
+    }
   });
 
   if (!record) return problem("Record not found", 404);
 
+  const denied = await authorizeRecordAccess(request, record);
+  if (denied) return denied;
+
+  const replayed = await replayIdempotentResponse(request, "POST /api/v1/consents", parsed.data);
+  if (replayed) return replayed;
+
   const token = createShareToken();
   const expiresAt = parsed.data.expiresAt ? new Date(parsed.data.expiresAt) : undefined;
-  const consent = await prisma.consentGrant.create({
-    data: {
-      holderId: record.holderId,
-      recordId: record.id,
-      mode: parsed.data.mode,
-      purpose: parsed.data.purpose,
-      audience: parsed.data.audience,
-      expiresAt
-    }
-  });
+  const [consent, shareLink] = await prisma.$transaction(async (tx) => {
+    const consentGrant = await tx.consentGrant.create({
+      data: {
+        holderId: record.holderId,
+        recordId: record.id,
+        mode: parsed.data.mode,
+        purpose: parsed.data.purpose,
+        audience: parsed.data.audience,
+        expiresAt
+      }
+    });
 
-  const shareLink = await prisma.shareLink.create({
-    data: {
-      tokenHash: hashToken(token),
-      holderId: record.holderId,
-      recordId: record.id,
-      consentGrantId: consent.id,
-      expiresAt
-    }
+    const link = await tx.shareLink.create({
+      data: {
+        tokenHash: hashToken(token),
+        holderId: record.holderId,
+        recordId: record.id,
+        consentGrantId: consentGrant.id,
+        expiresAt
+      }
+    });
+
+    return [consentGrant, link] as const;
   });
 
   await writeAuditAnchor({
@@ -67,16 +83,16 @@ export async function POST(request: Request) {
     }
   });
 
-  return ok(
-    {
-      consent,
-      shareLink: {
-        id: shareLink.id,
-        token,
-        expiresAt: shareLink.expiresAt?.toISOString() ?? null,
-        url: `${process.env.APP_URL ?? "http://localhost:3000"}/verify/${token}`
-      }
-    },
-    { status: 201 }
-  );
+  const responseBody = {
+    consent,
+    shareLink: {
+      id: shareLink.id,
+      token,
+      expiresAt: shareLink.expiresAt?.toISOString() ?? null,
+      url: `${process.env.APP_URL ?? "http://localhost:3000"}/verify/${token}`
+    }
+  };
+  await storeIdempotentResponse(request, "POST /api/v1/consents", parsed.data, responseBody, 201);
+
+  return ok(responseBody, { status: 201 });
 }

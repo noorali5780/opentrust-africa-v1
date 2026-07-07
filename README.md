@@ -71,6 +71,8 @@ npm.cmd run security:keys
 
 Then copy the generated values into `.env` or your hosting secret store and set `ENFORCE_API_AUTH=true`. See `docs/security.md` for the current tamper-evidence and encryption model.
 
+For high-traffic deployment planning, see `docs/production-scale.md`. The app now has bounded API reads, scoped record access, idempotent writes, and safer audit verification, but very large traffic targets require gateway, database, queue, cache, and observability infrastructure around the code.
+
 ## Product boundaries
 
 The MVP intentionally does not include marketplace flows, map-first UX, AI-issued records, biometrics, payment integrations, public blockchain anchoring, or a universal human trust score.

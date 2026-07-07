@@ -3,7 +3,9 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { ok, readJson } from "@/lib/json";
 import { writeAuditAnchor } from "@/lib/audit";
-import { authorizeMutation, rateLimit } from "@/lib/request-security";
+import { authorizeIssuerMutation, rateLimit } from "@/lib/request-security";
+import { pageInfo, parsePagination } from "@/lib/api-query";
+import { replayIdempotentResponse, storeIdempotentResponse } from "@/lib/idempotency";
 
 const templateSchema = z.object({
   issuerId: z.string().min(1),
@@ -11,24 +13,49 @@ const templateSchema = z.object({
   type: z.literal("certificate").default("certificate")
 });
 
-export async function GET() {
-  const templates = await prisma.recordTemplate.findMany({
-    orderBy: { createdAt: "desc" },
-    include: { issuer: true }
-  });
+export async function GET(request: Request) {
+  const limited = rateLimit(request, "template-read", 120, 60_000);
+  if (limited) return limited;
 
-  return ok({ templates });
+  const { limit, cursor } = parsePagination(request);
+  const templates = await prisma.recordTemplate.findMany({
+    take: limit + 1,
+    ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    select: {
+      id: true,
+      issuerId: true,
+      name: true,
+      type: true,
+      version: true,
+      schemaJson: true,
+      createdAt: true,
+      issuer: {
+        select: {
+          id: true,
+          name: true,
+          verified: true
+        }
+      }
+    }
+  });
+  const page = pageInfo(templates, limit);
+
+  return ok({ templates: page.items, nextCursor: page.nextCursor });
 }
 
 export async function POST(request: Request) {
   const limited = rateLimit(request, "template-write", 30, 60_000);
   if (limited) return limited;
 
-  const denied = await authorizeMutation(request);
-  if (denied) return denied;
-
   const parsed = await readJson(request, templateSchema);
   if ("response" in parsed) return parsed.response;
+
+  const denied = await authorizeIssuerMutation(request, parsed.data.issuerId);
+  if (denied) return denied;
+
+  const replayed = await replayIdempotentResponse(request, "POST /api/v1/templates", parsed.data);
+  if (replayed) return replayed;
 
   const template = await prisma.recordTemplate.create({
     data: {
@@ -50,5 +77,8 @@ export async function POST(request: Request) {
     payload: template
   });
 
-  return ok({ template }, { status: 201 });
+  const responseBody = { template };
+  await storeIdempotentResponse(request, "POST /api/v1/templates", parsed.data, responseBody, 201);
+
+  return ok(responseBody, { status: 201 });
 }

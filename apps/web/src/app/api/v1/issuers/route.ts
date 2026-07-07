@@ -3,6 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { ok, readJson } from "@/lib/json";
 import { writeAuditAnchor } from "@/lib/audit";
 import { authorizeMutation, rateLimit } from "@/lib/request-security";
+import { pageInfo, parsePagination } from "@/lib/api-query";
+import { replayIdempotentResponse, storeIdempotentResponse } from "@/lib/idempotency";
 
 const issuerSchema = z.object({
   name: z.string().min(2),
@@ -10,13 +12,25 @@ const issuerSchema = z.object({
   verified: z.boolean().default(false)
 });
 
-export async function GET() {
+export async function GET(request: Request) {
+  const limited = rateLimit(request, "issuer-read", 120, 60_000);
+  if (limited) return limited;
+
+  const { limit, cursor } = parsePagination(request);
   const issuers = await prisma.issuer.findMany({
-    orderBy: { createdAt: "desc" },
-    include: {
-      templates: true,
+    take: limit + 1,
+    ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      verified: true,
+      status: true,
+      createdAt: true,
       _count: {
         select: {
+          templates: true,
           records: true,
           verificationEvents: true
         }
@@ -24,7 +38,9 @@ export async function GET() {
     }
   });
 
-  return ok({ issuers });
+  const page = pageInfo(issuers, limit);
+
+  return ok({ issuers: page.items, nextCursor: page.nextCursor });
 }
 
 export async function POST(request: Request) {
@@ -36,6 +52,9 @@ export async function POST(request: Request) {
 
   const parsed = await readJson(request, issuerSchema);
   if ("response" in parsed) return parsed.response;
+
+  const replayed = await replayIdempotentResponse(request, "POST /api/v1/issuers", parsed.data);
+  if (replayed) return replayed;
 
   const issuer = await prisma.issuer.create({
     data: parsed.data
@@ -49,5 +68,8 @@ export async function POST(request: Request) {
     payload: issuer
   });
 
-  return ok({ issuer }, { status: 201 });
+  const responseBody = { issuer };
+  await storeIdempotentResponse(request, "POST /api/v1/issuers", parsed.data, responseBody, 201);
+
+  return ok(responseBody, { status: 201 });
 }

@@ -27,6 +27,9 @@ model MagicLinkToken {
   usedAt    DateTime?
   createdAt DateTime  @default(now())
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+  @@index([expiresAt])
 }
 
 model Session {
@@ -36,6 +39,24 @@ model Session {
   expiresAt DateTime
   createdAt DateTime @default(now())
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+  @@index([expiresAt])
+}
+
+model ApiIdempotencyKey {
+  id           String   @id @default(cuid())
+  key          String
+  route        String
+  requestHash  String
+  responseJson Json
+  statusCode   Int
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([key, route])
+  @@index([expiresAt])
 }
 
 model Holder {
@@ -81,6 +102,8 @@ model IssuerMember {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([issuerId, userId])
+  @@index([userId, status])
+  @@index([issuerId, status])
 }
 
 model RecordTemplate {
@@ -132,6 +155,10 @@ model TrustRecord {
 
   @@index([issuerId, status])
   @@index([holderId, status])
+  @@index([status, createdAt])
+  @@index([createdAt, id])
+  @@index([issuerId, createdAt])
+  @@index([holderId, createdAt])
 }
 
 model ConsentGrant {
@@ -153,6 +180,7 @@ model ConsentGrant {
 
   @@index([holderId, status])
   @@index([recordId, status])
+  @@index([status, expiresAt])
 }
 
 model ShareLink {
@@ -169,6 +197,11 @@ model ShareLink {
   holder             Holder              @relation(fields: [holderId], references: [id], onDelete: Cascade)
   consentGrant       ConsentGrant        @relation(fields: [consentGrantId], references: [id], onDelete: Cascade)
   verificationEvents VerificationEvent[]
+
+  @@index([recordId, createdAt])
+  @@index([holderId, createdAt])
+  @@index([consentGrantId, createdAt])
+  @@index([expiresAt])
 }
 
 model VerificationEvent {
@@ -190,6 +223,9 @@ model VerificationEvent {
 
   @@index([recordId, createdAt])
   @@index([issuerId, createdAt])
+  @@index([shareLinkId, createdAt])
+  @@index([status, createdAt])
+  @@index([createdAt, id])
 }
 
 model Revocation {
@@ -201,6 +237,8 @@ model Revocation {
   createdAt  DateTime    @default(now())
   record     TrustRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
   issuer     Issuer      @relation(fields: [issuerId], references: [id], onDelete: Restrict)
+
+  @@index([issuerId, createdAt])
 }
 
 model Dispute {
@@ -219,6 +257,9 @@ model Dispute {
   issuer        Issuer?     @relation(fields: [issuerId], references: [id], onDelete: SetNull)
 
   @@index([recordId, status])
+  @@index([issuerId, status])
+  @@index([holderId, status])
+  @@index([createdAt, id])
 }
 
 model AuditAnchor {
@@ -242,4 +283,6 @@ model AuditAnchor {
 
   @@index([issuerId, sequence])
   @@index([recordId, sequence])
+  @@index([sequence, id])
+  @@index([createdAt, id])
 }

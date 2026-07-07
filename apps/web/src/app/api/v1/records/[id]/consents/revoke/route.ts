@@ -1,7 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import { ok, problem } from "@/lib/json";
 import { writeAuditAnchor } from "@/lib/audit";
-import { authorizeMutation, rateLimit } from "@/lib/request-security";
+import { authorizeMutation, authorizeRecordAccess, rateLimit } from "@/lib/request-security";
+import { replayIdempotentResponse, storeIdempotentResponse } from "@/lib/idempotency";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -17,16 +18,31 @@ export async function POST(request: Request, context: RouteContext) {
   const { id } = await context.params;
   const record = await prisma.trustRecord.findUnique({
     where: { id },
-    include: {
+    select: {
+      id: true,
+      issuerId: true,
+      holderId: true,
+      version: true,
       consentGrants: {
         where: { status: "active" },
         orderBy: { createdAt: "desc" },
-        take: 1
+        take: 1,
+        select: {
+          id: true,
+          status: true
+        }
       }
     }
   });
 
   if (!record) return problem("Record not found", 404);
+
+  const accessDenied = await authorizeRecordAccess(request, record);
+  if (accessDenied) return accessDenied;
+
+  const idempotentBody = { id };
+  const replayed = await replayIdempotentResponse(request, "POST /api/v1/records/:id/consents/revoke", idempotentBody);
+  if (replayed) return replayed;
 
   const consent = record.consentGrants[0];
   if (!consent) return problem("No active consent grant found", 404);
@@ -61,5 +77,8 @@ export async function POST(request: Request, context: RouteContext) {
     }
   });
 
-  return ok({ consent: updatedConsent });
+  const responseBody = { consent: updatedConsent };
+  await storeIdempotentResponse(request, "POST /api/v1/records/:id/consents/revoke", idempotentBody, responseBody);
+
+  return ok(responseBody);
 }

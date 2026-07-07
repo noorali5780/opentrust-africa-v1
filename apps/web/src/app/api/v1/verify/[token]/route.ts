@@ -17,6 +17,8 @@ export async function GET(request: Request, context: RouteContext) {
   if (limited) return limited;
 
   const { token } = await context.params;
+  if (token.length < 16 || token.length > 256) return problem("Verification link not found", 404);
+
   const url = new URL(request.url);
   const offlineCache = url.searchParams.get("offlineCache") === "true";
   const verifierReference = url.searchParams.get("verifier") ?? undefined;
@@ -25,12 +27,40 @@ export async function GET(request: Request, context: RouteContext) {
 
   const shareLink = await prisma.shareLink.findUnique({
     where: { tokenHash },
-    include: {
-      consentGrant: true,
+    select: {
+      id: true,
+      consentGrantId: true,
+      expiresAt: true,
+      revokedAt: true,
+      consentGrant: {
+        select: {
+          id: true,
+          mode: true,
+          status: true,
+          expiresAt: true,
+          revokedAt: true
+        }
+      },
       record: {
-        include: {
-          issuer: true,
-          holder: true
+        select: {
+          id: true,
+          issuerId: true,
+          type: true,
+          status: true,
+          version: true,
+          credentialJson: true,
+          publicSummaryJson: true,
+          evidenceHash: true,
+          expiresAt: true,
+          revokedAt: true,
+          disputeState: true,
+          issuer: {
+            select: {
+              id: true,
+              name: true,
+              verified: true
+            }
+          }
         }
       }
     }
