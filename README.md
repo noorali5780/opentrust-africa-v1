@@ -74,3 +74,9 @@ Then copy the generated values into `.env` or your hosting secret store and set 
 ## Product boundaries
 
 The MVP intentionally does not include marketplace flows, map-first UX, AI-issued records, biometrics, payment integrations, public blockchain anchoring, or a universal human trust score.
+
+Signed,
+
+Sadiki Noor
+Manila Inc
+admin@sadiki.online
