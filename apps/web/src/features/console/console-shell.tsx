@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
-import { BadgeCheck, ClipboardCheck, FileCheck2, History, RefreshCw, RotateCcw, ScanLine, ShieldAlert, UserRoundCheck } from "lucide-react";
+import { BadgeCheck, ClipboardCheck, FileCheck2, History, MapPinned, RefreshCw, RotateCcw, ScanLine, ShieldAlert, UserRoundCheck } from "lucide-react";
 import { useConsole } from "./console-context";
 import { consoleRoutes, roleFromPathname } from "./console-navigation";
 import { Metric } from "./console-widgets";
@@ -13,6 +13,7 @@ const routeIcons = {
   issuer: ClipboardCheck,
   holder: UserRoundCheck,
   verifier: ScanLine,
+  sentinel: MapPinned,
   audit: History
 } satisfies Record<ConsoleRole, typeof ClipboardCheck>;
 

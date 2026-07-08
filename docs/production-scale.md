@@ -15,6 +15,7 @@ No single web app process can honestly guarantee one billion requests without fa
 - Partition or archive high-volume append tables such as `VerificationEvent` and `AuditAnchor`.
 - Move high-volume verification event processing to a queue and worker pool.
 - Batch or schedule full-chain audit verification instead of exposing full ledger scans through public request paths.
+- For Sentinel maps, self-host OpenStreetMap tiles or use an open tile service with a policy suitable for production traffic.
 - Use centralized logs, metrics, tracing, uptime checks, and alerts.
 - Load test with realistic request mixes before claiming capacity.
 

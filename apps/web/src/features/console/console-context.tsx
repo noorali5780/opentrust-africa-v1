@@ -3,7 +3,8 @@
 import { createContext, useContext, useEffect, useMemo, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import type { ReasonCode } from "@opentrust/core/reason-codes";
 import { apiJson } from "./api";
-import { defaultIssueForm, mapApiRecord, mapApiVerification, mapAuditRows, seededAudit, seededRecord, storageKeys } from "./data";
+import { defaultIssueForm, mapApiRecord, mapApiVerification, mapAuditRows, seededAudit, seededRecord, seededSentinelEvents, sentinelSites, storageKeys } from "./data";
+import { createSentinelEvent } from "./sentinel";
 import type {
   AccessEvent,
   ApiAuditAnchor,
@@ -14,7 +15,11 @@ import type {
   ConsoleMetrics,
   DemoRecord,
   DraftRecord,
+  GpsFix,
+  GpsStatus,
   IssueForm,
+  SentinelEvent,
+  SentinelSite,
   VerificationResult,
   Workspace
 } from "./types";
@@ -24,6 +29,13 @@ type ConsoleContextValue = {
   records: DemoRecord[];
   drafts: DraftRecord[];
   auditRows: AuditRow[];
+  sentinelSites: SentinelSite[];
+  sentinelEvents: SentinelEvent[];
+  gpsStatus: GpsStatus;
+  gpsMessage: string;
+  currentGpsFix: GpsFix | null;
+  selectedSentinelSiteId: string;
+  setSelectedSentinelSiteId: Dispatch<SetStateAction<string>>;
   backendMode: BackendMode;
   backendMessage: string;
   syncing: boolean;
@@ -49,6 +61,9 @@ type ConsoleContextValue = {
   revokeRecord: (recordId: string) => Promise<void>;
   openDispute: (recordId: string) => Promise<void>;
   verifyToken: () => Promise<void>;
+  requestGpsFix: () => void;
+  useDemoGpsFix: () => void;
+  runSentinelCheck: () => void;
 };
 
 const ConsoleContext = createContext<ConsoleContextValue | null>(null);
@@ -57,6 +72,11 @@ export function ConsoleProvider({ children }: { children: ReactNode }) {
   const [records, setRecords] = useState<DemoRecord[]>([seededRecord]);
   const [drafts, setDrafts] = useState<DraftRecord[]>([]);
   const [auditRows, setAuditRows] = useState<AuditRow[]>(seededAudit);
+  const [sentinelEvents, setSentinelEvents] = useState<SentinelEvent[]>(seededSentinelEvents);
+  const [gpsStatus, setGpsStatus] = useState<GpsStatus>("idle");
+  const [gpsMessage, setGpsMessage] = useState("GPS not requested");
+  const [currentGpsFix, setCurrentGpsFix] = useState<GpsFix | null>(null);
+  const [selectedSentinelSiteId, setSelectedSentinelSiteId] = useState(sentinelSites[0]?.id ?? "");
   const [ready, setReady] = useState(false);
   const [backendMode, setBackendMode] = useState<BackendMode>("checking");
   const [backendMessage, setBackendMessage] = useState("Checking persistent API");
@@ -74,6 +94,7 @@ export function ConsoleProvider({ children }: { children: ReactNode }) {
     setRecords(parseStored(storageKeys.records, [seededRecord]));
     setDrafts(parseStored(storageKeys.drafts, []));
     setAuditRows(parseStored(storageKeys.audit, seededAudit));
+    setSentinelEvents(parseStored(storageKeys.sentinel, seededSentinelEvents));
     setReady(true);
     void loadApiData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -85,6 +106,11 @@ export function ConsoleProvider({ children }: { children: ReactNode }) {
     window.localStorage.setItem(storageKeys.drafts, JSON.stringify(drafts));
     window.localStorage.setItem(storageKeys.audit, JSON.stringify(auditRows));
   }, [auditRows, backendMode, drafts, ready, records]);
+
+  useEffect(() => {
+    if (!ready || typeof window === "undefined") return;
+    window.localStorage.setItem(storageKeys.sentinel, JSON.stringify(sentinelEvents));
+  }, [ready, sentinelEvents]);
 
   const metrics = useMemo(
     () => ({
@@ -431,10 +457,83 @@ export function ConsoleProvider({ children }: { children: ReactNode }) {
     });
   }
 
+  function requestGpsFix() {
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      setGpsStatus("unavailable");
+      setGpsMessage("Geolocation is not available in this browser");
+      return;
+    }
+
+    setGpsStatus("locating");
+    setGpsMessage("Requesting device GPS");
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const fix: GpsFix = {
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+          accuracyMeters: position.coords.accuracy,
+          capturedAt: new Date(position.timestamp).toISOString(),
+          source: "device_gps"
+        };
+
+        setCurrentGpsFix(fix);
+        setGpsStatus("ready");
+        setGpsMessage(`GPS ready within ${Math.round(position.coords.accuracy)}m`);
+      },
+      (error) => {
+        const denied = error.code === error.PERMISSION_DENIED;
+        setGpsStatus(denied ? "denied" : "error");
+        setGpsMessage(denied ? "GPS permission denied" : "GPS fix failed");
+      },
+      {
+        enableHighAccuracy: true,
+        maximumAge: 60_000,
+        timeout: 12_000
+      }
+    );
+  }
+
+  function useDemoGpsFix() {
+    const site = sentinelSites.find((item) => item.id === selectedSentinelSiteId) ?? sentinelSites[0];
+    if (!site) return;
+
+    setCurrentGpsFix({
+      lat: site.lat + 0.00055,
+      lng: site.lng + 0.0004,
+      accuracyMeters: 42,
+      capturedAt: today(),
+      source: "demo_location"
+    });
+    setGpsStatus("ready");
+    setGpsMessage("Demo GPS fix loaded");
+  }
+
+  function runSentinelCheck() {
+    const site = sentinelSites.find((item) => item.id === selectedSentinelSiteId) ?? sentinelSites[0];
+    if (!site) return;
+
+    if (!currentGpsFix) {
+      setGpsStatus("unavailable");
+      setGpsMessage("GPS fix required before Sentinel check");
+      return;
+    }
+
+    const event = createSentinelEvent(site, currentGpsFix);
+    setSentinelEvents((current) => [event, ...current]);
+    appendAudit("sentinel_check", event.siteId, event.status, event);
+  }
+
   const value: ConsoleContextValue = {
     records,
     drafts,
     auditRows,
+    sentinelSites,
+    sentinelEvents,
+    gpsStatus,
+    gpsMessage,
+    currentGpsFix,
+    selectedSentinelSiteId,
+    setSelectedSentinelSiteId,
     backendMode,
     backendMessage,
     syncing,
@@ -459,7 +558,10 @@ export function ConsoleProvider({ children }: { children: ReactNode }) {
     revokeShare,
     revokeRecord,
     openDispute,
-    verifyToken
+    verifyToken,
+    requestGpsFix,
+    useDemoGpsFix,
+    runSentinelCheck
   };
 
   return <ConsoleContext.Provider value={value}>{children}</ConsoleContext.Provider>;

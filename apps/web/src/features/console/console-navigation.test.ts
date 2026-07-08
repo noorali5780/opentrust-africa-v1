@@ -6,6 +6,7 @@ describe("console route helpers", () => {
     ["/issuer", "issuer"],
     ["/holder", "holder"],
     ["/verifier?token=abc", "verifier"],
+    ["/sentinel", "sentinel"],
     ["/audit", "audit"],
     ["/", "issuer"]
   ] as const)("maps %s to %s", (pathname, role) => {

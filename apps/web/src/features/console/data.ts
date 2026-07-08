@@ -1,10 +1,11 @@
-import type { ApiAuditAnchor, ApiTrustRecord, ApiVerificationResponse, AuditRow, DemoRecord, IssueForm, VerificationResult } from "./types";
+import type { ApiAuditAnchor, ApiTrustRecord, ApiVerificationResponse, AuditRow, DemoRecord, IssueForm, SentinelEvent, SentinelSite, VerificationResult } from "./types";
 import { createAudit, simpleHash } from "./utils";
 
 export const storageKeys = {
   records: "opentrust.records",
   drafts: "opentrust.drafts",
-  audit: "opentrust.audit"
+  audit: "opentrust.audit",
+  sentinel: "opentrust.sentinel"
 };
 
 export const seededRecord: DemoRecord = {
@@ -45,6 +46,38 @@ export const defaultIssueForm: IssueForm = {
   description: "Completed a verified training program with assessment and attendance evidence.",
   expiresAt: "2028-06-30"
 };
+
+export const sentinelSites: SentinelSite[] = [
+  {
+    id: "site_nairobi_digital_skills",
+    name: "Nairobi Digital Skills Centre",
+    category: "issuer_site",
+    lat: -1.286389,
+    lng: 36.817223,
+    radiusMeters: 350,
+    address: "Nairobi CBD, Kenya"
+  },
+  {
+    id: "site_amina_training_lab",
+    name: "Amina Training Lab Checkpoint",
+    category: "training_site",
+    lat: -1.292066,
+    lng: 36.821945,
+    radiusMeters: 500,
+    address: "Nairobi city centre field learning zone"
+  },
+  {
+    id: "site_kijani_hr",
+    name: "Kijani Works HR Desk",
+    category: "verifier_site",
+    lat: -1.300516,
+    lng: 36.784833,
+    radiusMeters: 650,
+    address: "Westlands verification office, Nairobi"
+  }
+];
+
+export const seededSentinelEvents: SentinelEvent[] = [];
 
 export function mapApiRecord(record: ApiTrustRecord, tokenByRecord: Record<string, string>): DemoRecord {
   const summary = record.publicSummaryJson;

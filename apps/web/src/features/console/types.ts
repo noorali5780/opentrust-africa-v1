@@ -1,9 +1,45 @@
 import type { ReasonCode } from "@opentrust/core/reason-codes";
 
-export type ConsoleRole = "issuer" | "holder" | "verifier" | "audit";
+export type ConsoleRole = "issuer" | "holder" | "verifier" | "sentinel" | "audit";
 export type RecordStatus = "draft" | "issued" | "revoked" | "expired" | "disputed";
 export type ConsentStatus = "none" | "active" | "revoked";
 export type BackendMode = "checking" | "api" | "demo";
+export type GpsStatus = "idle" | "locating" | "ready" | "denied" | "unavailable" | "error";
+export type SentinelEventStatus = "inside_geofence" | "nearby" | "outside_geofence" | "gps_unavailable";
+export type SentinelRiskLevel = "low" | "medium" | "high";
+
+export type GeoPoint = {
+  lat: number;
+  lng: number;
+};
+
+export type GpsFix = GeoPoint & {
+  accuracyMeters: number;
+  capturedAt: string;
+  source: "device_gps" | "demo_location";
+};
+
+export type SentinelSite = GeoPoint & {
+  id: string;
+  name: string;
+  category: "issuer_site" | "training_site" | "verifier_site";
+  radiusMeters: number;
+  address: string;
+};
+
+export type SentinelEvent = GeoPoint & {
+  id: string;
+  siteId: string;
+  siteName: string;
+  status: SentinelEventStatus;
+  riskLevel: SentinelRiskLevel;
+  distanceMeters: number;
+  radiusMeters: number;
+  accuracyMeters: number;
+  source: GpsFix["source"];
+  capturedAt: string;
+  reasonCodes: string[];
+};
 
 export type AccessEvent = {
   id: string;

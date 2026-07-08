@@ -253,6 +253,13 @@ button:disabled {
   align-items: start;
 }
 
+.sentinel-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(340px, 0.65fr);
+  gap: 16px;
+  align-items: start;
+}
+
 .panel {
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -290,6 +297,24 @@ button:disabled {
 
 .panel-body {
   padding: 16px;
+}
+
+.sentinel-map-panel .panel-body {
+  display: grid;
+  gap: 10px;
+}
+
+.sentinel-map {
+  min-height: 560px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-strong);
+}
+
+.map-attribution-note {
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .form-grid {
@@ -333,20 +358,57 @@ button:disabled {
 
 .record-list,
 .audit-list,
-.access-list {
+.access-list,
+.sentinel-event-list,
+.sentinel-side {
   display: grid;
   gap: 10px;
 }
 
 .record-row,
 .audit-row,
-.access-row {
+.access-row,
+.sentinel-event,
+.sentinel-result,
+.sentinel-site-summary {
   display: grid;
   gap: 10px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface-strong);
   padding: 12px;
+}
+
+.sentinel-site-summary span,
+.sentinel-message {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.sentinel-status-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.sentinel-status-grid div {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-strong);
+  padding: 12px;
+}
+
+.sentinel-status-grid span {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.sentinel-status-grid strong {
+  display: block;
+  margin-top: 6px;
+  font-size: 18px;
 }
 
 .record-row {
@@ -455,7 +517,8 @@ button:disabled {
 
 @media (max-width: 920px) {
   .topbar-inner,
-  .workspace {
+  .workspace,
+  .sentinel-workspace {
     grid-template-columns: 1fr;
   }
 
@@ -465,6 +528,10 @@ button:disabled {
 
   .summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .sentinel-map {
+    min-height: 420px;
   }
 }
 
@@ -480,6 +547,10 @@ button:disabled {
 
   .record-row {
     grid-template-columns: 1fr;
+  }
+
+  .sentinel-map {
+    min-height: 340px;
   }
 
   .button-row {

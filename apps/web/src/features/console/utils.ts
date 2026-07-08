@@ -47,8 +47,8 @@ export function parseStored<T>(key: string, fallback: T): T {
 }
 
 export function statusTone(status: string): "good" | "warn" | "bad" {
-  if (status === "issued" || status === "active" || status === "valid") return "good";
-  if (status === "disputed" || status === "offline_cache") return "warn";
+  if (status === "issued" || status === "active" || status === "valid" || status === "inside_geofence") return "good";
+  if (status === "disputed" || status === "offline_cache" || status === "nearby") return "warn";
   return "bad";
 }
 

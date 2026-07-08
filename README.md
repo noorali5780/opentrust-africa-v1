@@ -9,9 +9,10 @@ This repository implements the first self-hostable web MVP for OpenTrust Africa:
 - Shared trust schemas and proof logic in `packages/core`
 - Prisma/Postgres schema in `prisma/schema.prisma`
 - REST-style JSON API under `/api/v1`
-- Routed Issuer Dashboard, Holder Trust Passport, Verifier, and Audit views
+- Routed Issuer Dashboard, Holder Trust Passport, Verifier, Sentinel, and Audit views
 - Certificate-first W3C Verifiable Credential-style records
 - Consent grants, verify-only share links, revocation, disputes, access history, and audit anchors
+- Open-source GPS Sentinel streetmap using Leaflet and OpenStreetMap attribution
 - Offline-aware local draft queue and verification cache labeling
 
 ## Local setup
@@ -66,6 +67,7 @@ Use the Reconnect control in the app after starting Postgres or applying migrati
 - `/issuer` for certificate issuance and issuer record operations
 - `/holder` for the Trust Passport, consent grants, access history, and disputes
 - `/verifier` for verify-only token checks
+- `/sentinel` for GPS streetmap checks and local location evidence
 - `/audit` for audit anchors and offline draft queue
 - `/verify/{token}` for share-link landing pages
 
@@ -87,7 +89,7 @@ The repo includes a production Dockerfile and GitHub Actions CI. See `docs/deplo
 
 ## Product boundaries
 
-The MVP intentionally does not include marketplace flows, map-first UX, AI-issued records, biometrics, payment integrations, public blockchain anchoring, or a universal human trust score.
+The MVP intentionally does not include marketplace flows, AI-issued records, biometrics, payment integrations, public blockchain anchoring, or a universal human trust score. Sentinel adds GPS/location context, but the product remains certificate-first rather than map-first.
 
 Signed,
 
