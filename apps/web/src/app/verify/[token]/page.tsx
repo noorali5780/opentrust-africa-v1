@@ -21,7 +21,7 @@ export default async function VerifyPage({ params }: VerifyPageProps) {
         <div className="panel-body">
           <div className="token-box">{token}</div>
           <div className="button-row" style={{ marginTop: 16 }}>
-            <Link className="primary-button" href={`/?token=${encodeURIComponent(token)}`}>
+            <Link className="primary-button" href={`/verifier?token=${encodeURIComponent(token)}`}>
               Open verifier
             </Link>
           </div>

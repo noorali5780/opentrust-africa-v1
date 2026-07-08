@@ -1,15 +1,11 @@
-"use client";
-
+import type { ReactNode } from "react";
 import { ConsoleProvider } from "@/features/console/console-context";
 import { ConsoleShell } from "@/features/console/console-shell";
-import { IssuerView } from "@/features/console/views/issuer-view";
 
-export function OpenTrustConsole() {
+export default function ConsoleLayout({ children }: Readonly<{ children: ReactNode }>) {
   return (
     <ConsoleProvider>
-      <ConsoleShell>
-        <IssuerView />
-      </ConsoleShell>
+      <ConsoleShell>{children}</ConsoleShell>
     </ConsoleProvider>
   );
 }

@@ -1,5 +1,5 @@
-import { OpenTrustConsole } from "@/components/opentrust-console";
+import { redirect } from "next/navigation";
 
-export default function Home() {
-  return <OpenTrustConsole />;
+export default function HomePage() {
+  redirect("/issuer");
 }

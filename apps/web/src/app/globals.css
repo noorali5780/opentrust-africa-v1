@@ -130,6 +130,7 @@ button:disabled {
   background: var(--surface);
   color: var(--muted);
   padding: 0 12px;
+  text-decoration: none;
 }
 
 .tab[data-active="true"] {

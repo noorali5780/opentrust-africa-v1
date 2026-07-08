@@ -9,7 +9,7 @@ This repository implements the first self-hostable web MVP for OpenTrust Africa:
 - Shared trust schemas and proof logic in `packages/core`
 - Prisma/Postgres schema in `prisma/schema.prisma`
 - REST-style JSON API under `/api/v1`
-- Issuer Dashboard, Holder Trust Passport, Verifier, and Audit views
+- Routed Issuer Dashboard, Holder Trust Passport, Verifier, and Audit views
 - Certificate-first W3C Verifiable Credential-style records
 - Consent grants, verify-only share links, revocation, disputes, access history, and audit anchors
 - Offline-aware local draft queue and verification cache labeling
@@ -61,6 +61,14 @@ The console attempts to connect to `/api/v1/bootstrap` on load.
 
 Use the Reconnect control in the app after starting Postgres or applying migrations.
 
+## App routes
+
+- `/issuer` for certificate issuance and issuer record operations
+- `/holder` for the Trust Passport, consent grants, access history, and disputes
+- `/verifier` for verify-only token checks
+- `/audit` for audit anchors and offline draft queue
+- `/verify/{token}` for share-link landing pages
+
 ## Security hardening
 
 Generate production secrets before any real deployment:
@@ -72,6 +80,10 @@ npm.cmd run security:keys
 Then copy the generated values into `.env` or your hosting secret store and set `ENFORCE_API_AUTH=true`. See `docs/security.md` for the current tamper-evidence and encryption model.
 
 For high-traffic deployment planning, see `docs/production-scale.md`. The app now has bounded API reads, scoped record access, idempotent writes, and safer audit verification, but very large traffic targets require gateway, database, queue, cache, and observability infrastructure around the code.
+
+## Deployment
+
+The repo includes a production Dockerfile and GitHub Actions CI. See `docs/deployment.md` for build, runtime, and migration notes.
 
 ## Product boundaries
 

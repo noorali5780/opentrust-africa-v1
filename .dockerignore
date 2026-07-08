@@ -1,0 +1,13 @@
+.git
+.github
+.next
+apps/web/.next
+node_modules
+coverage
+dist
+out
+*.log
+.env
+.env*.local
+OpenTrust Africa Deep Research Dossier.pdf
+opentrust_africa_starter_bundle/
