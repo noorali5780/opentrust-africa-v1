@@ -1,21 +1,20 @@
 # OpenTrust Africa Foundation MVP
 
-This repository implements the first self-hostable web MVP for OpenTrust Africa: a certificate trust loop where an issuer creates a certificate, a holder receives it in a Trust Passport, a holder shares a verify-only link, a verifier checks the claim, and revocation, disputes, access history, and proof anchors are auditable.
+OpenTrust Africa is a self-hostable trust infrastructure MVP for issuing, sharing, verifying, and auditing certificate-based claims. The platform supports a certificate trust loop in which an issuer creates a credential, a holder receives it in a Trust Passport, a verifier checks the claim through a verify-only link, and all key actions remain auditable.
 
-## What is included
+## What this repository includes
 
-- TypeScript npm workspaces
-- Next.js-style web app in `apps/web`
-- Shared trust schemas and proof logic in `packages/core`
-- Prisma/Postgres schema in `prisma/schema.prisma`
-- REST-style JSON API under `/api/v1`
-- Routed Issuer Dashboard, Holder Trust Passport, Verifier, Sentinel, and Audit views
-- Certificate-first W3C Verifiable Credential-style records
-- Consent grants, verify-only share links, revocation, disputes, access history, and audit anchors
-- Open-source GPS Sentinel streetmap using Leaflet and OpenStreetMap attribution
-- Offline-aware local draft queue and verification cache labeling
+- A TypeScript monorepo with npm workspaces
+- A web application in apps/web
+- Shared trust logic and schemas in packages/core
+- Prisma and PostgreSQL-backed persistence in prisma/schema.prisma
+- REST-style API endpoints under /api/v1
+- Dedicated views for issuer, holder, verifier, sentinel, and audit workflows
+- Certificate-first, W3C-style record handling with consent, revocation, disputes, and access history
+- Sentinel support for GPS and location-aware evidence
+- Offline-friendly draft queue and verification cache behavior
 
-## Local setup
+## Quick start
 
 1. Install dependencies:
 
@@ -23,13 +22,13 @@ This repository implements the first self-hostable web MVP for OpenTrust Africa:
    npm.cmd install
    ```
 
-2. Copy the environment template:
+2. Create your environment file:
 
    ```powershell
    Copy-Item .env.example .env
    ```
 
-3. Start Postgres and set `DATABASE_URL` in `.env`.
+3. Start PostgreSQL and set DATABASE_URL in .env.
 
    With Docker Desktop:
 
@@ -37,7 +36,7 @@ This repository implements the first self-hostable web MVP for OpenTrust Africa:
    docker compose up -d
    ```
 
-4. Generate Prisma client and apply the schema:
+4. Generate the Prisma client, apply the schema, and seed the database:
 
    ```powershell
    npm.cmd run prisma:generate
@@ -51,45 +50,43 @@ This repository implements the first self-hostable web MVP for OpenTrust Africa:
    npm.cmd run dev
    ```
 
-PowerShell may block `npm.ps1` on this machine; use `npm.cmd` as shown above.
+If PowerShell blocks npm.ps1 on your machine, use npm.cmd as shown above.
 
-## Runtime modes
+## Runtime behavior
 
-The console attempts to connect to `/api/v1/bootstrap` on load.
+The console attempts to connect to /api/v1/bootstrap on load.
 
-- If Postgres is migrated and reachable, the app enters persistent mode and all issue, share, verify, revoke, dispute, access-history, and audit actions use the API.
-- If the API or database is unavailable, the app stays usable in local demo mode with browser storage and an offline draft queue.
+- When PostgreSQL is available, the app runs in persistent mode and uses the API for issuance, sharing, verification, revocation, disputes, access history, and audit actions.
+- If the API or database is unavailable, the app remains usable in local demo mode with browser storage and an offline draft queue.
 
-Use the Reconnect control in the app after starting Postgres or applying migrations.
+Use the Reconnect control in the app after starting PostgreSQL or applying migrations.
 
-## App routes
+## Main routes
 
-- `/issuer` for certificate issuance and issuer record operations
-- `/holder` for the Trust Passport, consent grants, access history, and disputes
-- `/verifier` for verify-only token checks
-- `/sentinel` for GPS streetmap checks and local location evidence
-- `/audit` for audit anchors and offline draft queue
-- `/verify/{token}` for share-link landing pages
+- /issuer for certificate issuance and issuer record management
+- /holder for the Trust Passport, consent grants, access history, and disputes
+- /verifier for verify-only checks
+- /sentinel for GPS and location evidence workflows
+- /audit for audit logs and offline draft queue review
+- /verify/{token} for share-link landing pages
 
-## Security hardening
+## Security and deployment
 
-Generate production secrets before any real deployment:
+Generate production secrets before deploying to production:
 
 ```powershell
 npm.cmd run security:keys
 ```
 
-Then copy the generated values into `.env` or your hosting secret store and set `ENFORCE_API_AUTH=true`. See `docs/security.md` for the current tamper-evidence and encryption model.
+Then copy the generated values into .env or your hosting secret store and set ENFORCE_API_AUTH=true. See docs/security.md for the current tamper-evidence and encryption model.
 
-For high-traffic deployment planning, see `docs/production-scale.md`. The app now has bounded API reads, scoped record access, idempotent writes, and safer audit verification, but very large traffic targets require gateway, database, queue, cache, and observability infrastructure around the code.
+For large-scale deployment planning, review docs/production-scale.md. The MVP includes bounded API reads, scoped record access, idempotent writes, and safer audit verification, but high-traffic environments still require gateway, database, queue, cache, and observability infrastructure.
 
-## Deployment
-
-The repo includes a production Dockerfile and GitHub Actions CI. See `docs/deployment.md` for build, runtime, and migration notes.
+The repository also includes a production Dockerfile and CI workflow. See docs/deployment.md for build, runtime, and migration notes.
 
 ## Product boundaries
 
-The MVP intentionally does not include marketplace flows, AI-issued records, biometrics, payment integrations, public blockchain anchoring, or a universal human trust score. Sentinel adds GPS/location context, but the product remains certificate-first rather than map-first.
+This MVP is intentionally focused on certificate-first trust workflows. It does not include marketplace flows, AI-issued records, biometrics, payment integrations, public blockchain anchoring, or a universal human trust score.
 
 Signed,
 

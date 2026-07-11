@@ -4,8 +4,21 @@ out
 dist
 coverage
 .env
-.env*.local
+.env*
+!.env.example
+!.env.sample
 *.log
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+*.der
+*.sqlite
+*.sqlite3
+secrets/
+credentials/
 prisma/migrations/*/migration_lock.toml
 OpenTrust Africa Deep Research Dossier.pdf
 opentrust_africa_starter_bundle/
