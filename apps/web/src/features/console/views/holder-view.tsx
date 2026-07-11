@@ -1,12 +1,22 @@
 "use client";
 
-import { History, KeyRound, LockKeyhole, RotateCcw, ShieldAlert } from "lucide-react";
+import { useState } from "react";
+import { ChevronDown, ChevronUp, History, KeyRound, LockKeyhole, RotateCcw, ShieldAlert } from "lucide-react";
 import { useConsole } from "../console-context";
 import { RecordList } from "../console-widgets";
 import { formatDate, statusTone } from "../utils";
 
 export function HolderView() {
   const { records, syncing, createShareLink, revokeShare, openDispute } = useConsole();
+  const [expandedAccessIds, setExpandedAccessIds] = useState<Set<string>>(new Set());
+  const toggleAccess = (id: string) => {
+    setExpandedAccessIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   return (
     <section className="workspace">
@@ -57,16 +67,45 @@ export function HolderView() {
           <div className="access-list">
             {records.flatMap((record) =>
               record.accessHistory.map((access) => (
-                <div className="access-row" key={access.id}>
-                  <strong>{access.verifier}</strong>
-                  <span>{access.purpose}</span>
-                  <div className="record-meta">
-                    <span>{record.courseName}</span>
-                    <span>{formatDate(access.at)}</span>
-                    <span className="status" data-tone={statusTone(access.cacheState)}>
-                      {access.cacheState}
-                    </span>
+                <div className="access-row" data-expanded={expandedAccessIds.has(access.id)} key={access.id}>
+                  <div className="data-row-summary">
+                    <div>
+                      <strong>{access.verifier}</strong>
+                      <div className="record-meta">
+                        <span>{record.courseName}</span>
+                        <span>{formatDate(access.at)}</span>
+                        <span className="status" data-tone={statusTone(access.cacheState)}>
+                          {access.cacheState}
+                        </span>
+                      </div>
+                    </div>
+                    <button className="secondary-button compact-button" type="button" onClick={() => toggleAccess(access.id)} title={expandedAccessIds.has(access.id) ? "Minimize access event" : "Expand access event"}>
+                      {expandedAccessIds.has(access.id) ? <ChevronUp size={18} aria-hidden /> : <ChevronDown size={18} aria-hidden />}
+                      {expandedAccessIds.has(access.id) ? "Minimize" : "Expand"}
+                    </button>
                   </div>
+                  {expandedAccessIds.has(access.id) && (
+                    <div className="record-details">
+                      <div className="detail-grid">
+                        <div>
+                          <span>Purpose</span>
+                          <strong>{access.purpose}</strong>
+                        </div>
+                        <div>
+                          <span>Record</span>
+                          <strong>{record.courseName}</strong>
+                        </div>
+                        <div>
+                          <span>Checked at</span>
+                          <strong>{formatDate(access.at)}</strong>
+                        </div>
+                        <div>
+                          <span>Cache state</span>
+                          <strong>{access.cacheState}</strong>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))
             )}

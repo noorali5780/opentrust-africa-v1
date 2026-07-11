@@ -46,6 +46,8 @@ export async function GET(request: Request, context: RouteContext) {
           select: {
             id: true,
             issuerId: true,
+            holderId: true,
+            templateId: true,
             type: true,
             status: true,
             version: true,
@@ -84,6 +86,76 @@ export async function GET(request: Request, context: RouteContext) {
     );
     const revoked = record.status === "revoked";
     const disputeOpen = record.disputeState === "open" || record.status === "disputed";
+    const now = new Date();
+    const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+    const [
+      duplicateEvidenceMatches,
+      duplicateTemplateMatches,
+      recentIssuerIssueCount,
+      issuerRecordCount,
+      issuerRevokedCount,
+      issuerDisputedCount,
+      subjectRecordConflictCount
+    ] = await Promise.all([
+      record.evidenceHash
+        ? prisma.trustRecord.count({
+            where: {
+              id: { not: record.id },
+              evidenceHash: record.evidenceHash,
+              type: record.type
+            }
+          })
+        : Promise.resolve(0),
+      record.templateId
+        ? prisma.trustRecord.count({
+            where: {
+              id: { not: record.id },
+              holderId: record.holderId,
+              templateId: record.templateId,
+              type: record.type,
+              status: { in: ["issued", "disputed"] }
+            }
+          })
+        : Promise.resolve(0),
+      prisma.trustRecord.count({
+        where: {
+          issuerId: record.issuerId,
+          createdAt: { gte: oneDayAgo }
+        }
+      }),
+      prisma.trustRecord.count({
+        where: {
+          issuerId: record.issuerId,
+          createdAt: { gte: ninetyDaysAgo }
+        }
+      }),
+      prisma.trustRecord.count({
+        where: {
+          issuerId: record.issuerId,
+          status: "revoked",
+          createdAt: { gte: ninetyDaysAgo }
+        }
+      }),
+      prisma.trustRecord.count({
+        where: {
+          issuerId: record.issuerId,
+          createdAt: { gte: ninetyDaysAgo },
+          OR: [{ disputeState: "open" }, { status: "disputed" }]
+        }
+      }),
+      prisma.trustRecord.count({
+        where: {
+          holderId: record.holderId,
+          id: { not: record.id },
+          createdAt: { gte: ninetyDaysAgo },
+          OR: [{ status: "revoked" }, { status: "disputed" }, { disputeState: "open" }]
+        }
+      })
+    ]);
+    const duplicateIdentityMatches = duplicateEvidenceMatches + duplicateTemplateMatches;
+    const issuerRevocationRate = issuerRecordCount > 0 ? issuerRevokedCount / issuerRecordCount : 0;
+    const issuerDisputeRate = issuerRecordCount > 0 ? issuerDisputedCount / issuerRecordCount : 0;
     const reasonCodes = buildVerificationReasonCodes({
       issuerVerified: record.issuer.verified,
       issuerAuthorized,
@@ -94,9 +166,9 @@ export async function GET(request: Request, context: RouteContext) {
       revoked,
       disputeOpen,
       offlineCache,
-      evidencePresent: Boolean(record.evidenceHash)
+      evidencePresent: Boolean(record.evidenceHash),
+      duplicateRisk: duplicateIdentityMatches > 0
     });
-    const valid = record.issuer.verified && issuerAuthorized && signatureValid && !recordExpired && !consentExpired && !revoked && !disputeOpen;
     const trustScore = calculateTrustScore({
       identityConfidence: 90,
       issuerTrust: record.issuer.verified ? 92 : 45,
@@ -106,8 +178,37 @@ export async function GET(request: Request, context: RouteContext) {
       recencyScore: recordExpired ? 20 : 88,
       communityValidation: 50,
       fraudPenalty: signatureValid ? 0 : 35,
-      disputePenalty: revoked ? 70 : disputeOpen ? 25 : 0
+      disputePenalty: revoked ? 70 : disputeOpen ? 25 : 0,
+      criticalSignals: {
+        issuerUnverified: !record.issuer.verified,
+        issuerUnauthorized: !issuerAuthorized,
+        signatureInvalid: !signatureValid,
+        consentInvalid: consentExpired,
+        expired: recordExpired,
+        revoked,
+        disputeOpen,
+        evidenceMissing: !record.evidenceHash,
+        duplicateRisk: duplicateIdentityMatches > 0,
+        abnormalIssuanceBurst: recentIssuerIssueCount > 200
+      },
+      anomalySignals: {
+        duplicateIdentityMatches,
+        recentIssuerIssueCount,
+        issuerRevocationRate,
+        issuerDisputeRate,
+        subjectRecordConflictCount,
+        offlineCache
+      }
     });
+    const valid =
+      record.issuer.verified &&
+      issuerAuthorized &&
+      signatureValid &&
+      !recordExpired &&
+      !consentExpired &&
+      !revoked &&
+      !disputeOpen &&
+      !trustScore.reviewRequired;
     const responseStatus = revoked ? "revoked" : disputeOpen ? "disputed" : recordExpired ? "expired" : record.status;
     const summary = publicCertificateSummarySchema.parse({
       ...(record.publicSummaryJson as Record<string, unknown>),

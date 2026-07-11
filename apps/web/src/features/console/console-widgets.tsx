@@ -1,7 +1,7 @@
 "use client";
 
-import type { ReactNode } from "react";
-import { ClipboardCheck } from "lucide-react";
+import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { ChevronDown, ChevronUp, ClipboardCheck, Search } from "lucide-react";
 import { reasonCodeMeta } from "@opentrust/core/reason-codes";
 import type { DemoRecord, VerificationResult } from "./types";
 import { formatDate, statusTone } from "./utils";
@@ -11,9 +11,13 @@ type IconComponent = typeof ClipboardCheck;
 export function Metric({ label, value, icon: Icon }: { label: string; value: number; icon: IconComponent }) {
   return (
     <div className="metric">
-      <Icon size={20} aria-hidden />
-      <span>{label}</span>
-      <strong>{value}</strong>
+      <div className="metric-icon">
+        <Icon size={20} aria-hidden />
+      </div>
+      <div>
+        <span>{label}</span>
+        <strong>{value}</strong>
+      </div>
     </div>
   );
 }
@@ -47,46 +51,140 @@ export function TextArea({ label, value, onChange }: { label: string; value: str
 }
 
 export function RecordList({ records, actions }: { records: DemoRecord[]; actions: (record: DemoRecord) => ReactNode }) {
+  const [query, setQuery] = useState("");
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set(records.slice(0, 1).map((record) => record.id)));
+  const filteredRecords = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    if (!normalizedQuery) return records;
+
+    return records.filter((record) =>
+      [record.courseName, record.description, record.holderName, record.holderEmail, record.status, record.consentStatus]
+        .join(" ")
+        .toLowerCase()
+        .includes(normalizedQuery)
+    );
+  }, [query, records]);
+  const toggleExpanded = (id: string) => {
+    setExpandedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
   return (
     <div className="record-list">
-      {records.map((record) => (
-        <div className="record-row" key={record.id}>
-          <div>
-            <h3 className="record-title">{record.courseName}</h3>
-            <p>{record.description}</p>
-            <div className="record-meta">
+      <div className="list-toolbar">
+        <label className="search-field">
+          <Search size={16} aria-hidden />
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search records" />
+        </label>
+        <span>{filteredRecords.length} shown</span>
+      </div>
+
+      {filteredRecords.map((record) => {
+        const expanded = expandedIds.has(record.id);
+
+        return (
+          <div className="record-row" data-expanded={expanded} key={record.id}>
+            <div className="record-summary">
+              <div className="record-heading">
+                <h3 className="record-title">{record.courseName}</h3>
+                <div className="record-meta">
+                  <span className="status" data-tone={statusTone(record.status)}>
+                    {record.status}
+                  </span>
+                  <span className="status" data-tone={statusTone(record.consentStatus)}>
+                    consent {record.consentStatus}
+                  </span>
+                </div>
+              </div>
+
+              <div className="row-actions">
+                {actions(record)}
+                <button className="secondary-button compact-button" type="button" onClick={() => toggleExpanded(record.id)} title={expanded ? "Minimize record" : "Expand record"}>
+                  {expanded ? <ChevronUp size={18} aria-hidden /> : <ChevronDown size={18} aria-hidden />}
+                  {expanded ? "Minimize" : "Expand"}
+                </button>
+              </div>
+            </div>
+
+            <div className="record-preview">
               <span>{record.holderName}</span>
               <span>{record.holderEmail}</span>
               <span>Issued {formatDate(record.issuedAt)}</span>
-              <span>Expires {formatDate(record.expiresAt)}</span>
-              <span className="status" data-tone={statusTone(record.status)}>
-                {record.status}
-              </span>
-              <span className="status" data-tone={statusTone(record.consentStatus)}>
-                consent {record.consentStatus}
-              </span>
             </div>
-            {record.shareToken && <div className="token-box">{record.shareToken}</div>}
+
+            {expanded && (
+              <div className="record-details">
+                <p className="record-description">{record.description}</p>
+                <div className="detail-grid">
+                  <div>
+                    <span>Holder</span>
+                    <strong>{record.holderName}</strong>
+                  </div>
+                  <div>
+                    <span>Email</span>
+                    <strong>{record.holderEmail}</strong>
+                  </div>
+                  <div>
+                    <span>Issued</span>
+                    <strong>{formatDate(record.issuedAt)}</strong>
+                  </div>
+                  <div>
+                    <span>Expires</span>
+                    <strong>{formatDate(record.expiresAt)}</strong>
+                  </div>
+                </div>
+                {record.shareToken && (
+                  <div className="detail-section">
+                    <span>Share token</span>
+                    <div className="token-box">{record.shareToken}</div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
-          {actions(record)}
-        </div>
-      ))}
+        );
+      })}
+      {records.length === 0 && <div className="empty">No records yet.</div>}
+      {records.length > 0 && filteredRecords.length === 0 && <div className="empty">No records match this search.</div>}
     </div>
   );
 }
 
 export function VerificationPanel({ result }: { result: VerificationResult }) {
+  const trustScore = typeof result.trustScore === "number" ? result.trustScore : 0;
+  const confidence = typeof result.confidence === "number" ? result.confidence : undefined;
+
   return (
     <div className="result">
       <div className="result-main" data-valid={result.valid}>
-        <span className="status" data-tone={result.valid ? "good" : "bad"}>
-          {result.valid ? "valid" : "review"}
-        </span>
-        <h3>{result.title}</h3>
+        <div className="result-heading">
+          <span className="status" data-tone={result.valid ? "good" : "bad"}>
+            {result.valid ? "valid" : "review"}
+          </span>
+          <h3>{result.title}</h3>
+        </div>
         {result.holderName && (
           <p>
             {result.holderName} holds {result.courseName} from {result.issuerName}.
           </p>
+        )}
+        {typeof result.trustScore === "number" && (
+          <div className="trust-meter" style={{ "--score": `${trustScore}%` } as CSSProperties}>
+            <div>
+              <span>Trust score</span>
+              <strong>{trustScore}</strong>
+            </div>
+            <div className="meter-track">
+              <span />
+            </div>
+          </div>
         )}
         {result.issuedAt && result.expiresAt && (
           <div className="record-meta">
@@ -97,6 +195,13 @@ export function VerificationPanel({ result }: { result: VerificationResult }) {
             </span>
             {typeof result.trustScore === "number" && <span>{result.trustScore} trust score</span>}
             {result.band && <span>{result.band}</span>}
+            {result.riskLevel && (
+              <span className="status" data-tone={result.riskLevel === "low" ? "good" : result.riskLevel === "medium" ? "warn" : "bad"}>
+                {result.riskLevel} risk
+              </span>
+            )}
+            {typeof confidence === "number" && <span>{confidence}% confidence</span>}
+            {result.reviewRequired && <span>review required</span>}
           </div>
         )}
       </div>

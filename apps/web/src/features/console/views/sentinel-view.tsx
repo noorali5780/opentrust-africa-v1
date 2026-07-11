@@ -1,6 +1,7 @@
 "use client";
 
-import { Crosshair, MapPinned, Navigation, Radar, ShieldCheck } from "lucide-react";
+import { useState } from "react";
+import { ChevronDown, ChevronUp, Crosshair, MapPinned, Navigation, Radar, ShieldCheck } from "lucide-react";
 import { useConsole } from "../console-context";
 import { SentinelMap } from "../sentinel-map";
 import { formatDate, statusTone } from "../utils";
@@ -24,6 +25,15 @@ export function SentinelView() {
     useDemoGpsFix,
     runSentinelCheck
   } = useConsole();
+  const [expandedEventIds, setExpandedEventIds] = useState<Set<string>>(new Set());
+  const toggleEvent = (id: string) => {
+    setExpandedEventIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
   const selectedSite = sentinelSites.find((site) => site.id === selectedSentinelSiteId) ?? sentinelSites[0];
   const latestEvent = sentinelEvents[0];
 
@@ -136,26 +146,52 @@ export function SentinelView() {
           <div className="panel-body">
             <div className="sentinel-event-list">
               {sentinelEvents.map((event) => (
-                <div className="sentinel-event" key={event.id}>
-                  <div className="record-meta">
-                    <span className="status" data-tone={statusTone(event.status)}>
-                      {event.status}
-                    </span>
-                    <strong>{event.siteName}</strong>
-                    <span>{formatDate(event.capturedAt)}</span>
+                <div className="sentinel-event" data-expanded={expandedEventIds.has(event.id)} key={event.id}>
+                  <div className="data-row-summary">
+                    <div>
+                      <div className="record-meta">
+                        <span className="status" data-tone={statusTone(event.status)}>
+                          {event.status}
+                        </span>
+                        <strong>{event.siteName}</strong>
+                        <span>{formatDate(event.capturedAt)}</span>
+                      </div>
+                      <p>{event.distanceMeters}m from site, {event.accuracyMeters}m accuracy</p>
+                    </div>
+                    <button className="secondary-button compact-button" type="button" onClick={() => toggleEvent(event.id)} title={expandedEventIds.has(event.id) ? "Minimize Sentinel event" : "Expand Sentinel event"}>
+                      {expandedEventIds.has(event.id) ? <ChevronUp size={18} aria-hidden /> : <ChevronDown size={18} aria-hidden />}
+                      {expandedEventIds.has(event.id) ? "Minimize" : "Expand"}
+                    </button>
                   </div>
-                  <div className="record-meta">
-                    <span>{event.lat}, {event.lng}</span>
-                    <span>{event.distanceMeters}m distance</span>
-                    <span>{event.accuracyMeters}m accuracy</span>
-                  </div>
-                  <div className="reason-list">
-                    {event.reasonCodes.map((code) => (
-                      <span className="reason-code" data-tone={code.includes("low") || code.includes("outside") ? "negative" : code.includes("medium") ? "neutral" : "positive"} key={code}>
-                        {code}
-                      </span>
-                    ))}
-                  </div>
+                  {expandedEventIds.has(event.id) && (
+                    <div className="record-details">
+                      <div className="detail-grid">
+                        <div>
+                          <span>Coordinates</span>
+                          <strong>{event.lat}, {event.lng}</strong>
+                        </div>
+                        <div>
+                          <span>Source</span>
+                          <strong>{event.source}</strong>
+                        </div>
+                        <div>
+                          <span>Distance</span>
+                          <strong>{event.distanceMeters}m</strong>
+                        </div>
+                        <div>
+                          <span>Accuracy</span>
+                          <strong>{event.accuracyMeters}m</strong>
+                        </div>
+                      </div>
+                      <div className="reason-list">
+                        {event.reasonCodes.map((code) => (
+                          <span className="reason-code" data-tone={code.includes("low") || code.includes("outside") ? "negative" : code.includes("medium") ? "neutral" : "positive"} key={code}>
+                            {code}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
               {sentinelEvents.length === 0 && <div className="empty">No Sentinel checks yet.</div>}

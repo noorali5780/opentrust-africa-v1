@@ -12,6 +12,7 @@ import { publicTrustRecordSelect } from "@/lib/api-shapes";
 import { authorizeIssuerMutation, getRecordReadScope, rateLimit } from "@/lib/request-security";
 import { pageInfo, parsePagination } from "@/lib/api-query";
 import { replayIdempotentResponse, storeIdempotentResponse } from "@/lib/idempotency";
+import { idempotencyDedupeKey, runApiOperation, taskLockKey } from "@/lib/operation-control";
 
 const issueCertificateSchema = z.object({
   issuerId: z.string().min(1),
@@ -76,142 +77,155 @@ export async function POST(request: Request) {
   const replayed = await replayIdempotentResponse(request, "POST /api/v1/records", parsed.data);
   if (replayed) return replayed;
 
-  const issuer = await prisma.issuer.findUnique({
-    where: { id: parsed.data.issuerId }
-  });
-
-  if (!issuer) return problem("Issuer not found", 404);
-
-  const holder =
-    (await prisma.holder.findFirst({
-      where: { email: parsed.data.holderEmail }
-    })) ??
-    (await prisma.holder.create({
-      data: {
-        displayName: parsed.data.holderName,
-        email: parsed.data.holderEmail,
-        phone: parsed.data.holderPhone
-      }
-    }));
-
-  const recordId = `rec_${randomUUID()}`;
-  const issuedAt = new Date();
-  const signingKeys = getIssuerSigningKeys();
-  const encryptionKey = getDataEncryptionKey();
-  const completionDate = parsed.data.completionDate ? new Date(parsed.data.completionDate) : issuedAt;
-  const expiresAt = parsed.data.expiresAt ? new Date(parsed.data.expiresAt) : undefined;
-  const unsignedCredential = certificateCredentialSchema.parse({
-    id: `urn:opentrust:certificate:${recordId}`,
-    issuer: {
-      id: issuer.id,
-      name: issuer.name,
-      verified: issuer.verified,
-      authorizedRecordTypes: ["certificate"]
-    },
-    issuanceDate: issuedAt.toISOString(),
-    expirationDate: expiresAt?.toISOString(),
-    credentialSubject: {
-      id: holder.id,
-      name: parsed.data.holderName,
-      email: parsed.data.holderEmail,
-      achievement: {
-        name: parsed.data.achievementName,
-        description: parsed.data.achievementDescription
-      },
-      completionDate: completionDate.toISOString(),
-      cohort: parsed.data.cohort
-    },
-    evidence: [
-      {
-        type: "IssuerAttestation",
-        hash: hashPayload({
-          issuerId: issuer.id,
-          holderEmail: parsed.data.holderEmail,
-          achievementName: parsed.data.achievementName,
-          completionDate: completionDate.toISOString()
-        }),
-        label: "Issuer confirmed completion"
-      }
-    ]
-  });
-  const signature = signCredentialPayload(unsignedCredential, signingKeys.privateKeyDerBase64);
-  const credential = certificateCredentialSchema.parse({
-    ...unsignedCredential,
-    proof: {
-      type: "OpenTrustEd25519Signature2026",
-      created: issuedAt.toISOString(),
-      proofPurpose: "assertionMethod",
-      verificationMethod: `opentrust:issuer:${issuer.id}#key-1`,
-      publicKey: signingKeys.publicKeyDerBase64,
-      keyId: signingKeys.keyId,
-      signature
-    }
-  });
-  const encryptedPrivateSubject = encryptJsonPayload(
+  return runApiOperation(
+    request,
     {
-      holderEmail: parsed.data.holderEmail,
-      holderPhone: parsed.data.holderPhone,
-      cohort: parsed.data.cohort
+      name: "record.issue",
+      priority: "high",
+      lockKey: taskLockKey("holder", parsed.data.holderEmail, "issue"),
+      dedupeKey: idempotencyDedupeKey(request, "POST /api/v1/records", parsed.data),
+      timeoutMs: 20_000
     },
-    encryptionKey.key,
-    encryptionKey.keyId
+    async ({ throwIfAborted }) => {
+      throwIfAborted();
+      const issuer = await prisma.issuer.findUnique({
+        where: { id: parsed.data.issuerId }
+      });
+
+      if (!issuer) return problem("Issuer not found", 404);
+
+      const holder =
+        (await prisma.holder.findFirst({
+          where: { email: parsed.data.holderEmail }
+        })) ??
+        (await prisma.holder.create({
+          data: {
+            displayName: parsed.data.holderName,
+            email: parsed.data.holderEmail,
+            phone: parsed.data.holderPhone
+          }
+        }));
+
+      const recordId = `rec_${randomUUID()}`;
+      const issuedAt = new Date();
+      const signingKeys = getIssuerSigningKeys();
+      const encryptionKey = getDataEncryptionKey();
+      const completionDate = parsed.data.completionDate ? new Date(parsed.data.completionDate) : issuedAt;
+      const expiresAt = parsed.data.expiresAt ? new Date(parsed.data.expiresAt) : undefined;
+      const unsignedCredential = certificateCredentialSchema.parse({
+        id: `urn:opentrust:certificate:${recordId}`,
+        issuer: {
+          id: issuer.id,
+          name: issuer.name,
+          verified: issuer.verified,
+          authorizedRecordTypes: ["certificate"]
+        },
+        issuanceDate: issuedAt.toISOString(),
+        expirationDate: expiresAt?.toISOString(),
+        credentialSubject: {
+          id: holder.id,
+          name: parsed.data.holderName,
+          email: parsed.data.holderEmail,
+          achievement: {
+            name: parsed.data.achievementName,
+            description: parsed.data.achievementDescription
+          },
+          completionDate: completionDate.toISOString(),
+          cohort: parsed.data.cohort
+        },
+        evidence: [
+          {
+            type: "IssuerAttestation",
+            hash: hashPayload({
+              issuerId: issuer.id,
+              holderEmail: parsed.data.holderEmail,
+              achievementName: parsed.data.achievementName,
+              completionDate: completionDate.toISOString()
+            }),
+            label: "Issuer confirmed completion"
+          }
+        ]
+      });
+      const signature = signCredentialPayload(unsignedCredential, signingKeys.privateKeyDerBase64);
+      const credential = certificateCredentialSchema.parse({
+        ...unsignedCredential,
+        proof: {
+          type: "OpenTrustEd25519Signature2026",
+          created: issuedAt.toISOString(),
+          proofPurpose: "assertionMethod",
+          verificationMethod: `opentrust:issuer:${issuer.id}#key-1`,
+          publicKey: signingKeys.publicKeyDerBase64,
+          keyId: signingKeys.keyId,
+          signature
+        }
+      });
+      const encryptedPrivateSubject = encryptJsonPayload(
+        {
+          holderEmail: parsed.data.holderEmail,
+          holderPhone: parsed.data.holderPhone,
+          cohort: parsed.data.cohort
+        },
+        encryptionKey.key,
+        encryptionKey.keyId
+      );
+      const publicSummary = publicCertificateSummarySchema.parse({
+        recordId,
+        recordType: "certificate",
+        status: "issued",
+        issuer: {
+          id: issuer.id,
+          name: issuer.name,
+          verified: issuer.verified
+        },
+        holderName: parsed.data.holderName,
+        achievementName: parsed.data.achievementName,
+        achievementDescription: parsed.data.achievementDescription,
+        issuedAt: issuedAt.toISOString(),
+        expiresAt: expiresAt?.toISOString(),
+        disputeStatus: "none"
+      });
+
+      const record = await prisma.trustRecord.create({
+        data: {
+          id: recordId,
+          issuerId: issuer.id,
+          holderId: holder.id,
+          templateId: parsed.data.templateId,
+          type: "certificate",
+          status: "issued",
+          credentialJson: credential as Prisma.InputJsonValue,
+          privateSubjectJson: {
+            encrypted: true,
+            algorithm: encryptedPrivateSubject.algorithm,
+            keyId: encryptedPrivateSubject.keyId,
+            fields: ["holderEmail", "holderPhone", "cohort"]
+          } satisfies Prisma.InputJsonValue,
+          privateSubjectCiphertext: encryptedPrivateSubject.ciphertext,
+          privateSubjectIv: encryptedPrivateSubject.iv,
+          privateSubjectTag: encryptedPrivateSubject.tag,
+          privateSubjectKeyId: encryptedPrivateSubject.keyId,
+          publicSummaryJson: publicSummary as Prisma.InputJsonValue,
+          evidenceHash: hashPayload(credential.evidence),
+          signature,
+          issuedAt,
+          expiresAt
+        },
+        select: publicTrustRecordSelect
+      });
+
+      await writeAuditAnchor({
+        action: "record_issued",
+        issuerId: issuer.id,
+        recordId: record.id,
+        status: record.status,
+        version: record.version,
+        payload: credential
+      });
+
+      const responseBody = { record, publicSummary };
+      await storeIdempotentResponse(request, "POST /api/v1/records", parsed.data, responseBody, 201);
+
+      return ok(responseBody, { status: 201 });
+    }
   );
-  const publicSummary = publicCertificateSummarySchema.parse({
-    recordId,
-    recordType: "certificate",
-    status: "issued",
-    issuer: {
-      id: issuer.id,
-      name: issuer.name,
-      verified: issuer.verified
-    },
-    holderName: parsed.data.holderName,
-    achievementName: parsed.data.achievementName,
-    achievementDescription: parsed.data.achievementDescription,
-    issuedAt: issuedAt.toISOString(),
-    expiresAt: expiresAt?.toISOString(),
-    disputeStatus: "none"
-  });
-
-  const record = await prisma.trustRecord.create({
-    data: {
-      id: recordId,
-      issuerId: issuer.id,
-      holderId: holder.id,
-      templateId: parsed.data.templateId,
-      type: "certificate",
-      status: "issued",
-      credentialJson: credential as Prisma.InputJsonValue,
-      privateSubjectJson: {
-        encrypted: true,
-        algorithm: encryptedPrivateSubject.algorithm,
-        keyId: encryptedPrivateSubject.keyId,
-        fields: ["holderEmail", "holderPhone", "cohort"]
-      } satisfies Prisma.InputJsonValue,
-      privateSubjectCiphertext: encryptedPrivateSubject.ciphertext,
-      privateSubjectIv: encryptedPrivateSubject.iv,
-      privateSubjectTag: encryptedPrivateSubject.tag,
-      privateSubjectKeyId: encryptedPrivateSubject.keyId,
-      publicSummaryJson: publicSummary as Prisma.InputJsonValue,
-      evidenceHash: hashPayload(credential.evidence),
-      signature,
-      issuedAt,
-      expiresAt
-    },
-    select: publicTrustRecordSelect
-  });
-
-  await writeAuditAnchor({
-    action: "record_issued",
-    issuerId: issuer.id,
-    recordId: record.id,
-    status: record.status,
-    version: record.version,
-    payload: credential
-  });
-
-  const responseBody = { record, publicSummary };
-  await storeIdempotentResponse(request, "POST /api/v1/records", parsed.data, responseBody, 201);
-
-  return ok(responseBody, { status: 201 });
 }

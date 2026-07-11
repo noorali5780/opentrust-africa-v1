@@ -53,6 +53,7 @@ export type VerificationReasonInput = {
   disputeOpen: boolean;
   offlineCache?: boolean;
   evidencePresent?: boolean;
+  duplicateRisk?: boolean;
 };
 
 export function buildVerificationReasonCodes(input: VerificationReasonInput): ReasonCode[] {
@@ -69,6 +70,7 @@ export function buildVerificationReasonCodes(input: VerificationReasonInput): Re
   if (input.disputeOpen) codes.push("dispute_open");
   if (input.offlineCache) codes.push("verification_offline_cache");
   if (input.evidencePresent === false) codes.push("evidence_missing");
+  if (input.duplicateRisk) codes.push("duplicate_risk");
 
   return Array.from(new Set(codes));
 }

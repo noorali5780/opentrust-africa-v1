@@ -6,6 +6,7 @@ import { writeAuditAnchor } from "@/lib/audit";
 import { publicTrustRecordSelect } from "@/lib/api-shapes";
 import { authorizeIssuerMutation, authorizeMutation, rateLimit } from "@/lib/request-security";
 import { replayIdempotentResponse, storeIdempotentResponse } from "@/lib/idempotency";
+import { idempotencyDedupeKey, runApiOperation, taskLockKey } from "@/lib/operation-control";
 
 const revokeSchema = z.object({
   issuerId: z.string().min(1),
@@ -48,53 +49,66 @@ export async function POST(request: Request, context: RouteContext) {
   const replayed = await replayIdempotentResponse(request, "POST /api/v1/records/:id/revoke", idempotentBody);
   if (replayed) return replayed;
 
-  const revokedAt = new Date();
-  const summary = {
-    ...(record.publicSummaryJson as Record<string, unknown>),
-    status: "revoked",
-    revokedAt: revokedAt.toISOString()
-  };
-
-  const [updatedRecord, revocation] = await prisma.$transaction([
-    prisma.trustRecord.update({
-      where: { id },
-      data: {
+  return runApiOperation(
+    request,
+    {
+      name: "record.revoke",
+      priority: "critical",
+      lockKey: taskLockKey("record", id, "state"),
+      dedupeKey: idempotencyDedupeKey(request, "POST /api/v1/records/:id/revoke", idempotentBody),
+      timeoutMs: 12_000
+    },
+    async ({ throwIfAborted }) => {
+      throwIfAborted();
+      const revokedAt = new Date();
+      const summary = {
+        ...(record.publicSummaryJson as Record<string, unknown>),
         status: "revoked",
-        revokedAt,
-        publicSummaryJson: summary as Prisma.InputJsonValue
-      },
-      select: publicTrustRecordSelect
-    }),
-    prisma.revocation.upsert({
-      where: { recordId: id },
-      create: {
-        recordId: id,
+        revokedAt: revokedAt.toISOString()
+      };
+
+      const [updatedRecord, revocation] = await prisma.$transaction([
+        prisma.trustRecord.update({
+          where: { id },
+          data: {
+            status: "revoked",
+            revokedAt,
+            publicSummaryJson: summary as Prisma.InputJsonValue
+          },
+          select: publicTrustRecordSelect
+        }),
+        prisma.revocation.upsert({
+          where: { recordId: id },
+          create: {
+            recordId: id,
+            issuerId: parsed.data.issuerId,
+            reason: parsed.data.reason,
+            reasonCode: parsed.data.reasonCode
+          },
+          update: {
+            reason: parsed.data.reason,
+            reasonCode: parsed.data.reasonCode
+          }
+        })
+      ]);
+
+      await writeAuditAnchor({
+        action: "record_revoked",
         issuerId: parsed.data.issuerId,
-        reason: parsed.data.reason,
-        reasonCode: parsed.data.reasonCode
-      },
-      update: {
-        reason: parsed.data.reason,
-        reasonCode: parsed.data.reasonCode
-      }
-    })
-  ]);
+        recordId: id,
+        status: "revoked",
+        version: updatedRecord.version,
+        payload: {
+          reason: parsed.data.reason,
+          reasonCode: parsed.data.reasonCode,
+          revokedAt: revokedAt.toISOString()
+        }
+      });
 
-  await writeAuditAnchor({
-    action: "record_revoked",
-    issuerId: parsed.data.issuerId,
-    recordId: id,
-    status: "revoked",
-    version: updatedRecord.version,
-    payload: {
-      reason: parsed.data.reason,
-      reasonCode: parsed.data.reasonCode,
-      revokedAt: revokedAt.toISOString()
+      const responseBody = { record: updatedRecord, revocation };
+      await storeIdempotentResponse(request, "POST /api/v1/records/:id/revoke", idempotentBody, responseBody);
+
+      return ok(responseBody);
     }
-  });
-
-  const responseBody = { record: updatedRecord, revocation };
-  await storeIdempotentResponse(request, "POST /api/v1/records/:id/revoke", idempotentBody, responseBody);
-
-  return ok(responseBody);
+  );
 }

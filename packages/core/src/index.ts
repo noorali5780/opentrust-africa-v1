@@ -4,3 +4,4 @@ export * from "./trust-score";
 export * from "./offline";
 export * from "./proof-ledger";
 export * from "./encryption";
+export * from "./task-control";

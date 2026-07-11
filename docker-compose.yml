@@ -4,9 +4,9 @@ services:
     container_name: opentrust-africa-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: opentrust
-      POSTGRES_PASSWORD: opentrust
-      POSTGRES_DB: opentrust_africa
+      POSTGRES_USER: ${POSTGRES_USER:-opentrust}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-opentrust_africa}
     ports:
       - "5432:5432"
     volumes:

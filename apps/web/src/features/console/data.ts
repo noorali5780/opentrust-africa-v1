@@ -138,6 +138,9 @@ export function mapApiVerification(response: ApiVerificationResponse): Verificat
     reasonCodes: response.reasonCodes,
     cacheState: response.cacheState,
     trustScore: response.trustScore?.score,
-    band: response.trustScore?.band
+    band: response.trustScore?.band,
+    riskLevel: response.trustScore?.riskLevel,
+    confidence: response.trustScore?.confidence,
+    reviewRequired: response.trustScore?.reviewRequired
   };
 }

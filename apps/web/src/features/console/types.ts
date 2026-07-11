@@ -108,6 +108,9 @@ export type VerificationResult = {
   cacheState: "fresh" | "offline_cache";
   trustScore?: number;
   band?: string;
+  riskLevel?: "low" | "medium" | "high" | "critical";
+  confidence?: number;
+  reviewRequired?: boolean;
 };
 
 export type Workspace = {
@@ -195,6 +198,10 @@ export type ApiVerificationResponse = {
   trustScore?: {
     score: number;
     band: string;
+    riskLevel?: "low" | "medium" | "high" | "critical";
+    confidence?: number;
+    reviewRequired?: boolean;
+    reasonCodes?: string[];
   };
   cacheState: "fresh" | "offline_cache";
 };

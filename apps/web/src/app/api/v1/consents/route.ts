@@ -5,6 +5,7 @@ import { ok, problem, readJson } from "@/lib/json";
 import { writeAuditAnchor } from "@/lib/audit";
 import { authorizeMutation, authorizeRecordAccess, rateLimit } from "@/lib/request-security";
 import { replayIdempotentResponse, storeIdempotentResponse } from "@/lib/idempotency";
+import { idempotencyDedupeKey, runApiOperation, taskLockKey } from "@/lib/operation-control";
 
 const consentSchema = z.object({
   recordId: z.string().min(1),
@@ -42,57 +43,70 @@ export async function POST(request: Request) {
   const replayed = await replayIdempotentResponse(request, "POST /api/v1/consents", parsed.data);
   if (replayed) return replayed;
 
-  const token = createShareToken();
-  const expiresAt = parsed.data.expiresAt ? new Date(parsed.data.expiresAt) : undefined;
-  const [consent, shareLink] = await prisma.$transaction(async (tx) => {
-    const consentGrant = await tx.consentGrant.create({
-      data: {
-        holderId: record.holderId,
+  return runApiOperation(
+    request,
+    {
+      name: "consent.create",
+      priority: "high",
+      lockKey: taskLockKey("record", record.id, "consent"),
+      dedupeKey: idempotencyDedupeKey(request, "POST /api/v1/consents", parsed.data),
+      timeoutMs: 12_000
+    },
+    async ({ throwIfAborted }) => {
+      throwIfAborted();
+      const token = createShareToken();
+      const expiresAt = parsed.data.expiresAt ? new Date(parsed.data.expiresAt) : undefined;
+      const [consent, shareLink] = await prisma.$transaction(async (tx) => {
+        const consentGrant = await tx.consentGrant.create({
+          data: {
+            holderId: record.holderId,
+            recordId: record.id,
+            mode: parsed.data.mode,
+            purpose: parsed.data.purpose,
+            audience: parsed.data.audience,
+            expiresAt
+          }
+        });
+
+        const link = await tx.shareLink.create({
+          data: {
+            tokenHash: hashToken(token),
+            holderId: record.holderId,
+            recordId: record.id,
+            consentGrantId: consentGrant.id,
+            expiresAt
+          }
+        });
+
+        return [consentGrant, link] as const;
+      });
+
+      await writeAuditAnchor({
+        action: "consent_granted",
+        issuerId: record.issuerId,
         recordId: record.id,
-        mode: parsed.data.mode,
-        purpose: parsed.data.purpose,
-        audience: parsed.data.audience,
-        expiresAt
-      }
-    });
+        status: consent.status,
+        version: record.version,
+        payload: {
+          mode: parsed.data.mode,
+          purpose: parsed.data.purpose,
+          audience: parsed.data.audience,
+          expiresAt: expiresAt?.toISOString()
+        }
+      });
 
-    const link = await tx.shareLink.create({
-      data: {
-        tokenHash: hashToken(token),
-        holderId: record.holderId,
-        recordId: record.id,
-        consentGrantId: consentGrant.id,
-        expiresAt
-      }
-    });
+      const responseBody = {
+        consent,
+        shareLink: {
+          id: shareLink.id,
+          token,
+          expiresAt: shareLink.expiresAt?.toISOString() ?? null,
+          url: `${process.env.APP_URL ?? "http://localhost:3000"}/verify/${token}`
+        }
+      };
+      await storeIdempotentResponse(request, "POST /api/v1/consents", parsed.data, responseBody, 201);
 
-    return [consentGrant, link] as const;
-  });
-
-  await writeAuditAnchor({
-    action: "consent_granted",
-    issuerId: record.issuerId,
-    recordId: record.id,
-    status: consent.status,
-    version: record.version,
-    payload: {
-      mode: parsed.data.mode,
-      purpose: parsed.data.purpose,
-      audience: parsed.data.audience,
-      expiresAt: expiresAt?.toISOString()
+      return ok(responseBody, { status: 201 });
     }
-  });
-
-  const responseBody = {
-    consent,
-    shareLink: {
-      id: shareLink.id,
-      token,
-      expiresAt: shareLink.expiresAt?.toISOString() ?? null,
-      url: `${process.env.APP_URL ?? "http://localhost:3000"}/verify/${token}`
-    }
-  };
-  await storeIdempotentResponse(request, "POST /api/v1/consents", parsed.data, responseBody, 201);
-
-  return ok(responseBody, { status: 201 });
+  );
 }

@@ -94,7 +94,11 @@ export const verificationResponseSchema = z.object({
   trustScore: z
     .object({
       score: z.number().min(0).max(100),
-      band: z.string()
+      band: z.string(),
+      riskLevel: z.enum(["low", "medium", "high", "critical"]).optional(),
+      confidence: z.number().min(0).max(100).optional(),
+      reviewRequired: z.boolean().optional(),
+      reasonCodes: z.array(z.string()).optional()
     })
     .optional(),
   verifiedAt: z.string().datetime(),

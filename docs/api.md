@@ -47,6 +47,12 @@ Verification responses include status, issuer, record type, revocation/dispute/e
 
 Audit anchors store hashes, status, timestamps, issuer IDs, versions, and previous-hash references. Private certificate payloads stay in the off-chain record table.
 
+## Health and operation control
+
+- `GET /api/v1/health` checks database availability and returns scheduler health for API operations and audit-ledger writes.
+
+Mutating routes run through a centralized operation controller with lock keys, timeout handling, retry limits, idempotency dedupe, structured logging, and safe conflict responses. See `docs/operations.md`.
+
 ## Protected writes
 
 When `ENFORCE_API_AUTH=true` or the app runs in production, mutating API routes require a valid `ota_session` cookie or an `OPEN_TRUST_API_KEY` supplied as `x-opentrust-api-key` or `Authorization: Bearer`.

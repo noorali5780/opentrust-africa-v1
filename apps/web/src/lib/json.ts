@@ -7,6 +7,13 @@ const defaultHeaders = {
   "Content-Type": "application/json; charset=utf-8"
 };
 
+class RequestBodyTimeoutError extends Error {
+  constructor() {
+    super("Request body read timed out");
+    this.name = "RequestBodyTimeoutError";
+  }
+}
+
 function withRequestId(init?: ResponseInit): ResponseInit {
   return {
       ...init,
@@ -42,9 +49,10 @@ export function serviceUnavailable(error: unknown) {
 export async function readJson<T>(
   request: Request,
   schema: ZodSchema<T>,
-  options: { maxBytes?: number } = {}
+  options: { maxBytes?: number; timeoutMs?: number } = {}
 ): Promise<{ data: T } | { response: Response }> {
   const maxBytes = options.maxBytes ?? 64 * 1024;
+  const timeoutMs = options.timeoutMs ?? 5_000;
   const contentLength = Number(request.headers.get("content-length") ?? "0");
 
   if (contentLength > maxBytes) {
@@ -52,7 +60,7 @@ export async function readJson<T>(
   }
 
   try {
-    const rawBody = await request.text();
+    const rawBody = await readTextWithTimeout(request, timeoutMs);
 
     if (Buffer.byteLength(rawBody, "utf8") > maxBytes) {
       return { response: problem("Request body is too large", 413) };
@@ -64,6 +72,22 @@ export async function readJson<T>(
     if (error instanceof ZodError) {
       return { response: problem("Invalid request body", 422, error.flatten()) };
     }
+    if (error instanceof RequestBodyTimeoutError) {
+      return { response: problem("Request body read timed out", 408) };
+    }
     return { response: problem("Request body must be valid JSON", 400) };
+  }
+}
+
+async function readTextWithTimeout(request: Request, timeoutMs: number) {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeout = setTimeout(() => reject(new RequestBodyTimeoutError()), timeoutMs);
+  });
+
+  try {
+    return await Promise.race([request.text(), timeoutPromise]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
   }
 }

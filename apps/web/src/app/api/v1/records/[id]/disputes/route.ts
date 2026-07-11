@@ -6,6 +6,7 @@ import { writeAuditAnchor } from "@/lib/audit";
 import { publicTrustRecordSelect } from "@/lib/api-shapes";
 import { authorizeMutation, authorizeRecordAccess, rateLimit } from "@/lib/request-security";
 import { replayIdempotentResponse, storeIdempotentResponse } from "@/lib/idempotency";
+import { idempotencyDedupeKey, runApiOperation, taskLockKey } from "@/lib/operation-control";
 
 const disputeSchema = z.object({
   holderId: z.string().min(1).optional(),
@@ -47,48 +48,61 @@ export async function POST(request: Request, context: RouteContext) {
   const replayed = await replayIdempotentResponse(request, "POST /api/v1/records/:id/disputes", idempotentBody);
   if (replayed) return replayed;
 
-  const summary = {
-    ...(record.publicSummaryJson as Record<string, unknown>),
-    status: "disputed",
-    disputeStatus: "open"
-  };
-
-  const [updatedRecord, dispute] = await prisma.$transaction([
-    prisma.trustRecord.update({
-      where: { id },
-      data: {
+  return runApiOperation(
+    request,
+    {
+      name: "record.dispute",
+      priority: "high",
+      lockKey: taskLockKey("record", id, "state"),
+      dedupeKey: idempotencyDedupeKey(request, "POST /api/v1/records/:id/disputes", idempotentBody),
+      timeoutMs: 12_000
+    },
+    async ({ throwIfAborted }) => {
+      throwIfAborted();
+      const summary = {
+        ...(record.publicSummaryJson as Record<string, unknown>),
         status: "disputed",
-        disputeState: "open",
-        publicSummaryJson: summary as Prisma.InputJsonValue
-      },
-      select: publicTrustRecordSelect
-    }),
-    prisma.dispute.create({
-      data: {
-        recordId: id,
-        holderId: parsed.data.holderId,
+        disputeStatus: "open"
+      };
+
+      const [updatedRecord, dispute] = await prisma.$transaction([
+        prisma.trustRecord.update({
+          where: { id },
+          data: {
+            status: "disputed",
+            disputeState: "open",
+            publicSummaryJson: summary as Prisma.InputJsonValue
+          },
+          select: publicTrustRecordSelect
+        }),
+        prisma.dispute.create({
+          data: {
+            recordId: id,
+            holderId: parsed.data.holderId,
+            issuerId: record.issuerId,
+            openedByEmail: parsed.data.openedByEmail,
+            reason: parsed.data.reason,
+            status: "open"
+          }
+        })
+      ]);
+
+      await writeAuditAnchor({
+        action: "dispute_opened",
         issuerId: record.issuerId,
-        openedByEmail: parsed.data.openedByEmail,
-        reason: parsed.data.reason,
-        status: "open"
-      }
-    })
-  ]);
+        recordId: id,
+        status: "open",
+        version: updatedRecord.version,
+        payload: {
+          reason: parsed.data.reason,
+          openedByEmail: parsed.data.openedByEmail
+        }
+      });
 
-  await writeAuditAnchor({
-    action: "dispute_opened",
-    issuerId: record.issuerId,
-    recordId: id,
-    status: "open",
-    version: updatedRecord.version,
-    payload: {
-      reason: parsed.data.reason,
-      openedByEmail: parsed.data.openedByEmail
+      const responseBody = { record: updatedRecord, dispute };
+      await storeIdempotentResponse(request, "POST /api/v1/records/:id/disputes", idempotentBody, responseBody, 201);
+
+      return ok(responseBody, { status: 201 });
     }
-  });
-
-  const responseBody = { record: updatedRecord, dispute };
-  await storeIdempotentResponse(request, "POST /api/v1/records/:id/disputes", idempotentBody, responseBody, 201);
-
-  return ok(responseBody, { status: 201 });
+  );
 }

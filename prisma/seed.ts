@@ -2,7 +2,7 @@ import { PrismaClient } from "@prisma/client";
 import { encryptJsonPayload } from "@opentrust/core/encryption";
 import { certificateCredentialSchema, publicCertificateSummarySchema } from "@opentrust/core/schemas";
 import { createAuditAnchor, createShareToken, hashPayload, hashToken, signCredentialPayload } from "@opentrust/core/proof-ledger";
-import { getDataEncryptionKey, getIssuerSigningKeys } from "@/lib/security-keys";
+import { getDataEncryptionKey, getIssuerSigningKeys } from "../apps/web/src/lib/security-keys";
 
 const prisma = new PrismaClient();
 

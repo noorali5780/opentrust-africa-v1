@@ -3,6 +3,7 @@ import { ok, problem } from "@/lib/json";
 import { writeAuditAnchor } from "@/lib/audit";
 import { authorizeMutation, authorizeRecordAccess, rateLimit } from "@/lib/request-security";
 import { replayIdempotentResponse, storeIdempotentResponse } from "@/lib/idempotency";
+import { idempotencyDedupeKey, runApiOperation, taskLockKey } from "@/lib/operation-control";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -47,38 +48,51 @@ export async function POST(request: Request, context: RouteContext) {
   const consent = record.consentGrants[0];
   if (!consent) return problem("No active consent grant found", 404);
 
-  const revokedAt = new Date();
-  const [updatedConsent] = await prisma.$transaction([
-    prisma.consentGrant.update({
-      where: { id: consent.id },
-      data: {
+  return runApiOperation(
+    request,
+    {
+      name: "consent.revoke",
+      priority: "high",
+      lockKey: taskLockKey("record", id, "consent"),
+      dedupeKey: idempotencyDedupeKey(request, "POST /api/v1/records/:id/consents/revoke", idempotentBody),
+      timeoutMs: 12_000
+    },
+    async ({ throwIfAborted }) => {
+      throwIfAborted();
+      const revokedAt = new Date();
+      const [updatedConsent] = await prisma.$transaction([
+        prisma.consentGrant.update({
+          where: { id: consent.id },
+          data: {
+            status: "revoked",
+            revokedAt
+          }
+        }),
+        prisma.shareLink.updateMany({
+          where: {
+            consentGrantId: consent.id,
+            revokedAt: null
+          },
+          data: { revokedAt }
+        })
+      ]);
+
+      await writeAuditAnchor({
+        action: "consent_revoked",
+        issuerId: record.issuerId,
+        recordId: record.id,
         status: "revoked",
-        revokedAt
-      }
-    }),
-    prisma.shareLink.updateMany({
-      where: {
-        consentGrantId: consent.id,
-        revokedAt: null
-      },
-      data: { revokedAt }
-    })
-  ]);
+        version: record.version,
+        payload: {
+          consentGrantId: consent.id,
+          revokedAt: revokedAt.toISOString()
+        }
+      });
 
-  await writeAuditAnchor({
-    action: "consent_revoked",
-    issuerId: record.issuerId,
-    recordId: record.id,
-    status: "revoked",
-    version: record.version,
-    payload: {
-      consentGrantId: consent.id,
-      revokedAt: revokedAt.toISOString()
+      const responseBody = { consent: updatedConsent };
+      await storeIdempotentResponse(request, "POST /api/v1/records/:id/consents/revoke", idempotentBody, responseBody);
+
+      return ok(responseBody);
     }
-  });
-
-  const responseBody = { consent: updatedConsent };
-  await storeIdempotentResponse(request, "POST /api/v1/records/:id/consents/revoke", idempotentBody, responseBody);
-
-  return ok(responseBody);
+  );
 }

@@ -5,6 +5,7 @@ import { writeAuditAnchor } from "@/lib/audit";
 import { authorizeMutation, rateLimit } from "@/lib/request-security";
 import { pageInfo, parsePagination } from "@/lib/api-query";
 import { replayIdempotentResponse, storeIdempotentResponse } from "@/lib/idempotency";
+import { idempotencyDedupeKey, runApiOperation, taskLockKey } from "@/lib/operation-control";
 
 const issuerSchema = z.object({
   name: z.string().min(2),
@@ -60,20 +61,33 @@ export async function POST(request: Request) {
   const replayed = await replayIdempotentResponse(request, "POST /api/v1/issuers", parsed.data);
   if (replayed) return replayed;
 
-  const issuer = await prisma.issuer.create({
-    data: parsed.data
-  });
+  return runApiOperation(
+    request,
+    {
+      name: "issuer.create",
+      priority: "high",
+      lockKey: taskLockKey("issuer", parsed.data.slug),
+      dedupeKey: idempotencyDedupeKey(request, "POST /api/v1/issuers", parsed.data),
+      timeoutMs: 10_000
+    },
+    async ({ throwIfAborted }) => {
+      throwIfAborted();
+      const issuer = await prisma.issuer.create({
+        data: parsed.data
+      });
 
-  await writeAuditAnchor({
-    action: "issuer_created",
-    issuerId: issuer.id,
-    status: issuer.status,
-    version: 1,
-    payload: issuer
-  });
+      await writeAuditAnchor({
+        action: "issuer_created",
+        issuerId: issuer.id,
+        status: issuer.status,
+        version: 1,
+        payload: issuer
+      });
 
-  const responseBody = { issuer };
-  await storeIdempotentResponse(request, "POST /api/v1/issuers", parsed.data, responseBody, 201);
+      const responseBody = { issuer };
+      await storeIdempotentResponse(request, "POST /api/v1/issuers", parsed.data, responseBody, 201);
 
-  return ok(responseBody, { status: 201 });
+      return ok(responseBody, { status: 201 });
+    }
+  );
 }

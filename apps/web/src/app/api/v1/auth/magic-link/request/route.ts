@@ -3,6 +3,7 @@ import { createShareToken, hashToken } from "@opentrust/core/proof-ledger";
 import { prisma } from "@/lib/prisma";
 import { ok, readJson } from "@/lib/json";
 import { rateLimit } from "@/lib/request-security";
+import { runApiOperation, taskLockKey } from "@/lib/operation-control";
 
 const requestSchema = z.object({
   email: z.string().email(),
@@ -16,30 +17,42 @@ export async function POST(request: Request) {
   const parsed = await readJson(request, requestSchema);
   if ("response" in parsed) return parsed.response;
 
-  const token = createShareToken();
-  const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
-  const user = await prisma.user.upsert({
-    where: { email: parsed.data.email },
-    create: {
-      email: parsed.data.email,
-      name: parsed.data.name
+  return runApiOperation(
+    request,
+    {
+      name: "auth.magic_link.request",
+      priority: "normal",
+      lockKey: taskLockKey("magic-link", parsed.data.email),
+      timeoutMs: 8_000
     },
-    update: {
-      name: parsed.data.name
-    }
-  });
+    async ({ throwIfAborted }) => {
+      throwIfAborted();
+      const token = createShareToken();
+      const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+      const user = await prisma.user.upsert({
+        where: { email: parsed.data.email },
+        create: {
+          email: parsed.data.email,
+          name: parsed.data.name
+        },
+        update: {
+          name: parsed.data.name
+        }
+      });
 
-  await prisma.magicLinkToken.create({
-    data: {
-      userId: user.id,
-      tokenHash: hashToken(token),
-      expiresAt
-    }
-  });
+      await prisma.magicLinkToken.create({
+        data: {
+          userId: user.id,
+          tokenHash: hashToken(token),
+          expiresAt
+        }
+      });
 
-  return ok({
-    message: "Magic link created if the account is eligible",
-    expiresAt: expiresAt.toISOString(),
-    ...(process.env.NODE_ENV !== "production" ? { token } : {})
-  });
+      return ok({
+        message: "Magic link created if the account is eligible",
+        expiresAt: expiresAt.toISOString(),
+        ...(process.env.NODE_ENV !== "production" ? { token } : {})
+      });
+    }
+  );
 }

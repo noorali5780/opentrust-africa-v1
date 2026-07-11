@@ -9,6 +9,26 @@ export type EncryptedPayload = {
   keyId: string;
 };
 
+const base64UrlPattern = /^[A-Za-z0-9_-]+$/;
+
+function decodeBase64UrlField(value: string, fieldName: string, expectedLength?: number): Buffer {
+  if (!value || !base64UrlPattern.test(value)) {
+    throw new Error(`Encrypted payload ${fieldName} must be canonical base64url`);
+  }
+
+  const decoded = Buffer.from(value, "base64url");
+
+  if (decoded.toString("base64url") !== value) {
+    throw new Error(`Encrypted payload ${fieldName} must be canonical base64url`);
+  }
+
+  if (expectedLength !== undefined && decoded.length !== expectedLength) {
+    throw new Error(`Encrypted payload ${fieldName} has an invalid length`);
+  }
+
+  return decoded;
+}
+
 export function parseAes256Key(keyBase64: string): Buffer {
   const key = Buffer.from(keyBase64, "base64");
 
@@ -36,11 +56,22 @@ export function encryptJsonPayload(payload: unknown, keyBase64: string, keyId = 
 }
 
 export function decryptJsonPayload<T = unknown>(encrypted: EncryptedPayload, keyBase64: string): T {
-  const key = parseAes256Key(keyBase64);
-  const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(encrypted.iv, "base64url"));
+  if (encrypted.algorithm !== "AES-256-GCM") {
+    throw new Error("Encrypted payload uses an unsupported algorithm");
+  }
 
-  decipher.setAuthTag(Buffer.from(encrypted.tag, "base64url"));
-  const plaintext = Buffer.concat([decipher.update(Buffer.from(encrypted.ciphertext, "base64url")), decipher.final()]).toString("utf8");
+  if (!encrypted.keyId) {
+    throw new Error("Encrypted payload is missing a key id");
+  }
+
+  const key = parseAes256Key(keyBase64);
+  const iv = decodeBase64UrlField(encrypted.iv, "iv", 12);
+  const tag = decodeBase64UrlField(encrypted.tag, "tag", 16);
+  const ciphertext = decodeBase64UrlField(encrypted.ciphertext, "ciphertext");
+  const decipher = createDecipheriv("aes-256-gcm", key, iv);
+
+  decipher.setAuthTag(tag);
+  const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString("utf8");
 
   return JSON.parse(plaintext) as T;
 }

@@ -6,6 +6,7 @@ import { writeAuditAnchor } from "@/lib/audit";
 import { authorizeIssuerMutation, rateLimit } from "@/lib/request-security";
 import { pageInfo, parsePagination } from "@/lib/api-query";
 import { replayIdempotentResponse, storeIdempotentResponse } from "@/lib/idempotency";
+import { idempotencyDedupeKey, runApiOperation, taskLockKey } from "@/lib/operation-control";
 
 const templateSchema = z.object({
   issuerId: z.string().min(1),
@@ -61,28 +62,41 @@ export async function POST(request: Request) {
   const replayed = await replayIdempotentResponse(request, "POST /api/v1/templates", parsed.data);
   if (replayed) return replayed;
 
-  const template = await prisma.recordTemplate.create({
-    data: {
-      issuerId: parsed.data.issuerId,
-      name: parsed.data.name,
-      type: parsed.data.type,
-      schemaJson: {
-        requiredFields: ["holderName", "holderEmail", "achievementName", "completionDate"],
-        disclosure: "verify_only"
-      } satisfies Prisma.InputJsonValue
+  return runApiOperation(
+    request,
+    {
+      name: "template.create",
+      priority: "normal",
+      lockKey: taskLockKey("issuer", parsed.data.issuerId, "templates"),
+      dedupeKey: idempotencyDedupeKey(request, "POST /api/v1/templates", parsed.data),
+      timeoutMs: 10_000
+    },
+    async ({ throwIfAborted }) => {
+      throwIfAborted();
+      const template = await prisma.recordTemplate.create({
+        data: {
+          issuerId: parsed.data.issuerId,
+          name: parsed.data.name,
+          type: parsed.data.type,
+          schemaJson: {
+            requiredFields: ["holderName", "holderEmail", "achievementName", "completionDate"],
+            disclosure: "verify_only"
+          } satisfies Prisma.InputJsonValue
+        }
+      });
+
+      await writeAuditAnchor({
+        action: "template_created",
+        issuerId: parsed.data.issuerId,
+        status: "active",
+        version: template.version,
+        payload: template
+      });
+
+      const responseBody = { template };
+      await storeIdempotentResponse(request, "POST /api/v1/templates", parsed.data, responseBody, 201);
+
+      return ok(responseBody, { status: 201 });
     }
-  });
-
-  await writeAuditAnchor({
-    action: "template_created",
-    issuerId: parsed.data.issuerId,
-    status: "active",
-    version: template.version,
-    payload: template
-  });
-
-  const responseBody = { template };
-  await storeIdempotentResponse(request, "POST /api/v1/templates", parsed.data, responseBody, 201);
-
-  return ok(responseBody, { status: 201 });
+  );
 }

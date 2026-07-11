@@ -8,8 +8,10 @@
     "./schemas": "./src/schemas.ts",
     "./reason-codes": "./src/reason-codes.ts",
     "./trust-score": "./src/trust-score.ts",
+    "./task-control": "./src/task-control.ts",
     "./proof-ledger": "./src/proof-ledger.ts",
-    "./offline": "./src/offline.ts"
+    "./offline": "./src/offline.ts",
+    "./encryption": "./src/encryption.ts"
   },
   "dependencies": {
     "zod": "^3.24.2"
